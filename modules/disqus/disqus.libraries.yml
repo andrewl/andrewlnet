@@ -1,0 +1,15 @@
+disqus:
+  version: 1.x
+  js:
+    js/disqus.js: {}
+    js/disqus.settings.js: {}
+  dependencies:
+    - core/jquery
+    - core/jquery.once
+    - core/drupal
+ga:
+  version: 1.x
+  js:
+    js/disqus_ga.js: {}
+  dependencies:
+    - disqus/disqus

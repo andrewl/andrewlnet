@@ -1,0 +1,13 @@
+name: Metatag
+type: module
+description: Manage meta tags for all entities.
+# core: 8.x
+package: SEO
+dependencies:
+  - field
+
+# Information added by Drupal.org packaging script on 2015-09-06
+version: '8.x-1.x-dev'
+core: '8.x'
+project: 'metatag'
+datestamp: 1441535057

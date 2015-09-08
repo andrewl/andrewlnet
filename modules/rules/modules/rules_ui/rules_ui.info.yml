@@ -1,0 +1,13 @@
+name: 'Rules UI'
+type: module
+description: 'Administration interface for Rules.'
+package: Rules
+# core: 8.x
+dependencies:
+  - rules
+configure: rules.ui.overview
+# Information added by Drupal.org packaging script on 2015-05-07
+version: '8.x-3.0-unstable4'
+core: '8.x'
+project: 'rules'
+datestamp: 1431010685

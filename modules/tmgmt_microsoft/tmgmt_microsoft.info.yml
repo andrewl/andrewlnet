@@ -1,0 +1,14 @@
+name: 'Microsoft Translator'
+description: 'A Microsoft Translator which use Microsoft Translator service.'
+package: 'Translation Management'
+# core: 8.x
+type: module
+
+dependencies:
+  - tmgmt
+
+# Information added by Drupal.org packaging script on 2015-08-10
+version: '8.x-1.x-dev'
+core: '8.x'
+project: 'tmgmt_microsoft'
+datestamp: 1439246044
