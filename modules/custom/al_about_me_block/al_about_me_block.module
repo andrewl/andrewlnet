@@ -1,0 +1,9 @@
+<?php
+/**
+ * @file
+ * Code for the al_about_me_block.module
+*/
+
+function matthew_page_alter(&$page) {
+   drupal_set_message('Hello world');
+}

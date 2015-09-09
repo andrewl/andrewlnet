@@ -5741,3 +5741,6 @@ div.entry-content img {
   margin-right: 2%;
   margin-bottom: 2%;
 }
+
+div.region-header aside {
+  padding: 0;
