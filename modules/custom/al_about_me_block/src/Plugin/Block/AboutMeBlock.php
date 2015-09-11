@@ -20,6 +20,6 @@ class AboutMeBlock extends BlockBase {
  * {@inheritdoc}
  */
   public function build() {
-    return array('#markup' => 'Software delivery professional, certified scrum master');
+    return array('#markup' => 'Software delivery professional working with Drupal. Certified Scrum Master.');
   }
 }

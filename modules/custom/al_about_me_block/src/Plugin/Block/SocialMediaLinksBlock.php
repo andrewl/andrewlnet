@@ -22,8 +22,13 @@ class SocialMediaLinksBlock extends BlockBase {
    */
   public function build() {
     return array(
-      '#markup' => '<a href="http://twitter.com/andrewl"><span class="socicon">a</span> @andrewl</a>',
-    );
+        '#markup' => '<ul><li><a href="http://twitter.com/andrewl"><span class="socicon">a</span></a></li><li><a href="http://uk.linkedin.com/in/andrewlarcombe"><span class="socicon">j</span></a></li><li><a href="mailto:andrew@andrewl.net"><span class="socicon">@</span></a></li></ul>',
+        '#attached' => array(
+          'library' =>  array(
+            'al_about_me_block/icons'
+            ),
+          ),
+        );
   }
 
 }

@@ -10,6 +10,11 @@
   text-transform: initial;
 }
 
+aside#block-socialmedialinks li {
+   list-style-type: none; 
+}
+
 .socicon {
   font-family: 'socicon' !important;
+  font-size: 36px;
 }
