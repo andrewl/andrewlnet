@@ -1,0 +1,23 @@
+diff --git a/geofield.libraries.yml b/geofield.libraries.yml
+new file mode 100644
+index 0000000..7b3fb90
+--- /dev/null
++++ b/geofield.libraries.yml
+@@ -0,0 +1,4 @@
++geolocation:
++  version: 1.x
++  js:
++    js/geolocation.js: {}
+diff --git a/src/Element/GeofieldLatLon.php b/src/Element/GeofieldLatLon.php
+index 09c5b7c..f112610 100644
+--- a/src/Element/GeofieldLatLon.php
++++ b/src/Element/GeofieldLatLon.php
+@@ -68,7 +68,7 @@ class GeofieldLatLon extends GeofieldElementBase {
+     static::elementProcess($element, $form_state, $complete_form);
+ 
+     if (!empty($element['#geolocation']) && $element['#geolocation'] == TRUE) {
+-      $element['#attached']['js'][] = drupal_get_path('module', 'geofield') . '/js/geolocation.js';
++      $element['#attached']['library'][] = 'geofield/geolocation';
+       $element['geocode'] = array(
+         '#type' => 'button',
+         '#value' => t('Find my location'),

@@ -1,0 +1,42 @@
+From 4f87b0accec884e62c5c5bb06464d40326b77659 Mon Sep 17 00:00:00 2001
+From: jpbousselin <jean-philippe.bousselin@ueberbit.de>
+Date: Wed, 24 Jun 2015 11:19:42 +0200
+Subject: [PATCH] Added missing function on the wrapper.
+
+---
+ src/GeoPHPInterface.php | 7 ++++++-
+ src/GeoPHPWrapper.php   | 7 +++++++
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/GeoPHPInterface.php b/src/GeoPHPInterface.php
+index 56be6d5..2f9aacb 100644
+--- a/src/GeoPHPInterface.php
++++ b/src/GeoPHPInterface.php
+@@ -20,4 +20,9 @@ public function version();
+    */
+   public function load();
+ 
+-}
+\ No newline at end of file
++  /**
++   * @return mixed
++   */
++  public function getAdapterMap();
++
++}
+diff --git a/src/GeoPHPWrapper.php b/src/GeoPHPWrapper.php
+index b0c98ec..2c708e0 100644
+--- a/src/GeoPHPWrapper.php
++++ b/src/GeoPHPWrapper.php
+@@ -23,4 +23,11 @@ public function load() {
+     return call_user_func_array(array('\geoPHP', 'load'), func_get_args());
+   }
+ 
++  /**
++   * {@inheritdoc}
++   */
++  public function getAdapterMap() {
++    return call_user_func_array(array('\geoPHP', 'getAdapterMap'), func_get_args());
++  }
++
+ }

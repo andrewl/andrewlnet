@@ -1,6 +1,3 @@
-[submodule "modules/tmgmt"]
-	path = modules/tmgmt
-	url = http://git.drupal.org/project/tmgmt.git
 [submodule "modules/geofield"]
 	path = modules/geofield
 	url = http://git.drupal.org/project/geofield.git

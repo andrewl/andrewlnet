@@ -1,0 +1,34 @@
+From 851bd99ddce3398643123b65673578da6156015a Mon Sep 17 00:00:00 2001
+From: vdsh <sroced@gmail.com>
+Date: Sat, 18 Jul 2015 19:15:00 +0200
+Subject: [PATCH] Default Formatter fix
+
+---
+ src/Plugin/Field/FieldFormatter/GeofieldDefaultFormatter.php | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/Plugin/Field/FieldFormatter/GeofieldDefaultFormatter.php b/src/Plugin/Field/FieldFormatter/GeofieldDefaultFormatter.php
+index 15a176b..5cac10d 100644
+--- a/src/Plugin/Field/FieldFormatter/GeofieldDefaultFormatter.php
++++ b/src/Plugin/Field/FieldFormatter/GeofieldDefaultFormatter.php
+@@ -39,7 +39,7 @@ class GeofieldDefaultFormatter extends FormatterBase {
+   public function settingsForm(array $form, FormStateInterface $form_state) {
+     $elements = parent::settingsForm($form, $form_state);
+ 
+-    \Drupal::service('geophp.geophp')->getAdapterMap();
++    $options = \Drupal::service('geophp.geophp')->getAdapterMap();
+     unset($options['google_geocode']);
+ 
+     $elements['output_format'] = array(
+@@ -56,7 +56,7 @@ class GeofieldDefaultFormatter extends FormatterBase {
+    * {@inheritdoc}
+    */
+   public function settingsSummary() {
+-    \Drupal::service('geophp.geophp')->getAdapterMap();
++    $formatOptions = \Drupal::service('geophp.geophp')->getAdapterMap();
+     $summary = array();
+     $summary[] = t('Geospatial output format: @format', array('@format' => $formatOptions[$this->getSetting('output_format')]));
+     return $summary;
+-- 
+1.9.5.msysgit.1
+
