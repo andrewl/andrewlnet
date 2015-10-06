@@ -358,9 +358,7 @@ table.sticky-header {
   display: block;
 }
 a.tabledrag-handle .handle {
-  background: none;
-  height: auto;
-  width: auto;
+  box-sizing: content-box;
 }
 
 // Error containers.
@@ -678,6 +676,7 @@ td.radio {
 table {
   .radio input[type="radio"],
   .checkbox input[type="checkbox"] {
+    margin-left: 0;
     max-width: inherit;
   }
 }
