@@ -16,5 +16,6 @@ aside#block-socialmedialinks li {
 
 .socicon {
   font-family: 'socicon' !important;
-  font-size: 36px;
+  padding-right: 10px;
+/*  font-size: 36px; */
 }

@@ -183,6 +183,7 @@ html {
 body {
   background-color: #f7f7f7; /* Nearly white */
   color: #292929; /* Nearly black */
+  color: #333333; /* Nearly black */
   font-family: 'Merriweather', 'Palatino Linotype', 'Book Antiqua', Palatino, serif;
 }
 
@@ -197,12 +198,21 @@ h6 {
   margin: 1em 0;
 }
 
+h1.title {
+  margin-bottom: 0.25em;
+  color: #6699CC;
+}
+
 h1 {
   font-size: 2.6em; /* 20px * 2.6 = 52px */
 }
 
 h2 {
   font-size: 1.9em; /* 20px * 1.9 = 38px */
+}
+
+header h2 {
+  margin-bottom: 0.25em;
 }
 
 h3 {
@@ -383,7 +393,7 @@ textarea {
  * Specific Styles
  */
 #site-header {
-  padding: 1.62em 0;
+/*  padding: 1.62em 0; */
   width: 100%;
 }
 
@@ -410,10 +420,10 @@ textarea {
 }
 
 #site-name a {
-  color: #888888;
+  color: #CC6600;
   font-family: 'Lato', Helvetica, sans-serif;
-  font-size: 1em;
-  line-height: 1em;
+  font-size: 1.1em;
+  line-height: 1.1em;
   text-decoration: none;
   text-transform: uppercase;
 }
@@ -526,7 +536,7 @@ padding: 0 0.5em;
  * Content styles
  */
 .writer-date {
-  color: #888888;
+  color: #6699CC;
   display: block;
   font-family: 'Lato', Helvetica, sans-serif;
   font-weight: 700;
