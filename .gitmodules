@@ -1,9 +1,0 @@
-[submodule "modules/geofield"]
-	path = modules/geofield
-	url = http://git.drupal.org/project/geofield.git
-[submodule "modules/geophp"]
-	path = modules/geophp
-	url = http://git.drupal.org/project/geophp.git
-[submodule "modules/leaflet"]
-	path = modules/leaflet
-	url = https://github.com/bforchhammer/leaflet
