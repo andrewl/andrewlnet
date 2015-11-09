@@ -1,0 +1,8 @@
+name: About Me
+description: The about me block
+core: 8.x
+package: Custom
+type: module
+
+libraries:
+  - al_about_me_block/icons
