@@ -1,0 +1,12 @@
+body {
+  background-color: #CCCCCC;
+}
+
+div.view-frontpage article {
+  background-color: white;
+  border: 3px solid #6A8BCC;
+}
+
+span.field--name-title {
+  color: #6A8BCC;
+}
