@@ -2,10 +2,10 @@ global:
   version: 1.x
   css:
     theme:
+      css/hophead.css: {}
       css/bootstrap.min.css: {}
       css/style.css: {}
       css/print.css: { media: print }
-      css/hophead.css: {}
   js:
     js/style.js: {}
   dependencies:

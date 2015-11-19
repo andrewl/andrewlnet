@@ -1,12 +1,35 @@
 body {
-  background-color: #CCCCCC;
+  text-align: center;
+  color: #033257;
 }
 
-div.view-frontpage article {
+div.region a {
+  color: #033257;
+}
+
+div.region a:hover, a:focus {
+  text-decoration-style: dotted;
+  color: red;
+}
+
+
+
+div.view-frontpage article.nohover {
   background-color: white;
-  border: 3px solid #6A8BCC;
+  border: 2px solid white;
+  border-radius: 8px;
 }
 
-span.field--name-title {
-  color: #6A8BCC;
+div.view-frontpage article.hover {
+  background-color: yellow;
+  border: 2px solid #6A8BCC;
+  border-radius: 8px;
+}
+
+nav#block-mainnavigation ul {
+  text-align: center;
+}
+
+nav#block-mainnavigation li {
+  display: inline;
 }
