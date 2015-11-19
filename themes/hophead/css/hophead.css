@@ -1,6 +1,6 @@
 body {
   text-align: center;
-  color: #033257;
+  color: #36454F;
 }
 
 div.region a {
@@ -9,21 +9,19 @@ div.region a {
 
 div.region a:hover, a:focus {
   text-decoration-style: dotted;
-  color: red;
+  color: #ff0000;
 }
-
-
 
 div.view-frontpage article.nohover {
   background-color: white;
-  border: 2px solid white;
-  border-radius: 8px;
+  border-top: 4px solid white;
+  border-bottom: 4px solid white;
 }
 
 div.view-frontpage article.hover {
-  background-color: yellow;
-  border: 2px solid #6A8BCC;
-  border-radius: 8px;
+  background-color: #efefef;
+  border-top: 4px solid #ff0000;
+  border-bottom: 4px solid #ff0000;
 }
 
 nav#block-mainnavigation ul {
@@ -32,4 +30,22 @@ nav#block-mainnavigation ul {
 
 nav#block-mainnavigation li {
   display: inline;
+}
+
+header {
+  border-bottom: 6px solid #009999;
+}
+
+main {
+  border-top: 6px solid #ffaa00;
+}
+
+body {
+  background-color: black;
+}
+
+div.container {
+  background-color: white;
+  padding-left: 0;
+  padding-right: 0;
 }
