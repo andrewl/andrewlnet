@@ -18,7 +18,7 @@ div.region a:hover, a:focus {
   color: #ff0000;
 }
 
-div.view-id-frontpage {
+div.view-id-frontpage div.row {
   margin-top: 0.5em;
 }
 
