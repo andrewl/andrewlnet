@@ -7,8 +7,20 @@ dependencies:
  - tmgmt
  - locale
 
+<<<<<<< HEAD
 # Information added by Drupal.org packaging script on 2015-11-12
+||||||| merged common ancestors
+# Information added by Drupal.org packaging script on 2015-11-07
+=======
+# Information added by Drupal.org packaging script on 2015-11-19
+>>>>>>> a3b3461d9245ea8b951750862808800c2b047a92
 version: '8.x-1.x-dev'
 core: '8.x'
 project: 'tmgmt'
+<<<<<<< HEAD
 datestamp: 1447327743
+||||||| merged common ancestors
+datestamp: 1446909547
+=======
+datestamp: 1447976346
+>>>>>>> a3b3461d9245ea8b951750862808800c2b047a92
