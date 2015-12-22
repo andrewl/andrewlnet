@@ -3,25 +3,30 @@ body {
   color: #36454F;
 }
 
-div.region a {
-  color: #033257;
+div.region-header a {
+  color: #36454F;
+}
+
+div.region-content a {
+  text-decoration: underline;
+  color: #36454F;
 }
 
 div.region a:hover, a:focus {
-  text-decoration-style: dotted;
+  text-decoration: underline;
   color: #ff0000;
 }
 
 div.view-frontpage article.nohover {
   background-color: white;
-  border-top: 4px solid white;
-  border-bottom: 4px solid white;
+  border-top: 3px solid white;
+  border-bottom: 3px solid white;
 }
 
 div.view-frontpage article.hover {
-  background-color: #efefef;
-  border-top: 4px solid #ff0000;
-  border-bottom: 4px solid #ff0000;
+  background-color: #fffff0;
+  border-top: 3px solid #ff0000;
+  border-bottom: 3px solid #ff0000;
 }
 
 nav#block-mainnavigation ul {
