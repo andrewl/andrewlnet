@@ -1,6 +1,7 @@
-body {
-  text-align: center;
+main {
+  text-align: left;
   color: #36454F;
+  font-size: 1.3em;
 }
 
 div.region a {
@@ -33,11 +34,11 @@ nav#block-mainnavigation li {
 }
 
 header {
-  border-bottom: 6px solid #009999;
+  border-bottom: 10px solid #000;
 }
 
 main {
-  border-top: 6px solid #ffaa00;
+//  border-top: 6px solid #ffaa00;
 }
 
 body {
@@ -48,4 +49,65 @@ div.container {
   background-color: white;
   padding-left: 0;
   padding-right: 0;
+}
+
+div.region {
+    overflow: hidden;
+}
+
+header h1 {
+  display: none;
+}
+
+div#block-sitebranding {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+div.region-header h3.site-name {
+  font-family: Lato, sans-serif;
+  font-weight: 900;
+  font-size: 2em;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+h2.block-mainnavigation-menu {
+  display: none;
+}
+
+nav#block-mainnavigation {
+  font-family: Lato, sans-serif;
+  font-weight: 900;
+  font-size: 1.25em;
+}
+
+nav#block-mainnavigation ul.menu {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+nav#block-mainnavigation ul.menu a {
+}
+
+h1.page-title {
+  font-family: Lato, sans-serif;
+  font-weight: 900;
+  font-size: 3em;
+  color: #fff;
+  margin-top: 0.5em;
+  height: 5em; 
+  background: black;
+  padding-top: 0.75em;
+  padding-left: 0.75em;
+  text-align: left;
+}
+
+h1.page-title.dark-text {
+  background: white;
+  color: #000;
+}
+
+body.path-frontpage h1.page-title {
+  display: none;
 }
