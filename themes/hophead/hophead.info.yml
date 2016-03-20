@@ -5,15 +5,10 @@ package: themes
 core: 8.x
 screenshot: hophead.gif
 
-base theme: classy
+base theme: bootstrap
 
 libraries:
   - hophead/global
 
 stylesheets-remove: stylesheet-i-dont-need.css
 stylesheets-overwrite:  stylesheet-i-overwrite.css
-
-regions:
-    header: Header
-    content: Main Content
-    footer: Footer

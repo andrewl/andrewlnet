@@ -1,156 +1,41 @@
-main {
-  text-align: left;
-  color: #000;
-  font-size: 1.3em;
+article.teaser div.field--name-field-image img {
+  border-radius: 50%;
+  border-color: #000;
+  border-style: solid;
+  height: 250px;
+  width: 250px;
+  border-width: 7px;
 }
 
-div.region-header a {
+article {
+  margin-bottom: 20px;
+}
+
+article.teaser h2 {
+  margin-top: 0px;
+}
+
+div.region-content h1.page-header {
+  border-top: 7px solid #000;
+  border-bottom: none;
+  padding-top: 10px;
+}
+
+div.region-header {
+  font-family: "Raleway","Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+
+.navbar-brand {
+  font-size: 24px;
+  font-weight: 900;
+}
+
+a {
   color: #000;
 }
 
-div.region-content a {
-  text-decoration: underline;
+a:hover {
   color: #000;
-}
-
-div.region a:hover, a:focus {
+  border-bottom: px dotted red;
   text-decoration: none;
-  color: #ff0000;
-}
-
-div.view-id-frontpage div.row {
-  margin-top: 0.5em;
-}
-
-div.view-frontpage article {
-  background-color: white;
-  border: 5px solid black;
-}
-
-div.view-frontpage article p {
-  padding-left: 0.2em;
-  padding-right: 0.2em;
-  text-align: center;
-  font-size: 0.75em;
-}
-
-div.view-frontpage h2 {
-  text-align: center;
-  border-bottom: 5px solid black;
-  font-size: 1em;
-  margin-top: 0.25em;
-  margin-bottom: 0.25em;
-}
-
-div.view-frontpage h2 a {
-  text-decoration: none;
-}
-
-div.view-frontpage article.nohover {
-}
-
-div.view-frontpage article.hover {
-  background-color: #fffff0;
-}
-
-nav#block-mainnavigation ul {
-  text-align: center;
-}
-
-nav#block-mainnavigation li {
-  display: inline;
-}
-
-header {
-  border-bottom: 10px solid #000;
-}
-
-main {
-//  border-top: 6px solid #ffaa00;
-}
-
-body {
-  background-color: black;
-}
-
-div.container {
-  background-color: white;
-  padding-left: 0;
-  padding-right: 0;
-}
-
-div.region {
-    overflow: hidden;
-}
-
-header h1 {
-  display: none;
-}
-
-div#block-sitebranding {
-  margin-top: 0.75em;
-  margin-bottom: 0.75em;
-}
-
-div.region-header h3.site-name {
-  font-family: Lato, sans-serif;
-  font-weight: 900;
-  font-size: 2em;
-  margin-top: 0;
-  margin-bottom: 0;
-}
-
-h2.block-mainnavigation-menu {
-  display: none;
-}
-
-nav#block-mainnavigation {
-  font-family: Lato, sans-serif;
-  font-weight: 900;
-  font-size: 1.25em;
-}
-
-nav#block-mainnavigation ul.menu {
-  margin-top: 0;
-  margin-bottom: 0;
-}
-
-nav#block-mainnavigation ul.menu a {
-}
-
-h1.page-title {
-  font-family: Lato, sans-serif;
-  font-weight: 900;
-  font-size: 3em;
-  color: #fff;
-  margin-top: 0.5em;
-  height: 5em; 
-  background: black;
-  padding-top: 0.75em;
-  padding-left: 0.75em;
-  text-align: left;
-}
-
-h1.page-title.dark-text {
-  background: white;
-  color: #000;
-}
-
-body.path-frontpage h1.page-title {
-  display: none;
-}
-
-main blockquote {
-  border: none;
-  font-size: 1.5em;
-  font-style: italic;
-  margin: 1em;
-}
-
-main blockquote p:before {
-  content: open-quote;
-}
-
-main blockquote p:after {
-  content: close-quote;
 }

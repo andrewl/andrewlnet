@@ -3,9 +3,6 @@ global:
   css:
     theme:
       css/hophead.css: {}
-      css/bootstrap.min.css: {}
-      css/style.css: {}
-      css/print.css: { media: print }
       //fonts.googleapis.com/css?family=Lato:900,900italic&subset=latin,latin-ext: { type: external }
   js:
     js/style.js: {}
