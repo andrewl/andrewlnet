@@ -1,0 +1,49 @@
+<?php
+use Drupal\Core\Url;
+
+
+function hophead_preprocess_field(&$variables, $hook) {
+  if ($variables['element']['#field_type'] == 'image') {
+    if ($variables['element']['#view_mode'] == 'full') {
+      $variables['view_mode_full'] = TRUE;
+    }
+    else {
+      $variables['view_mode_full'] = FALSE;
+    }
+  }
+}
+
+function hophead_preprocess_node(&$vars) {
+  return;
+}
+
+// only add to homepage
+/*
+$request = \Drupal::request();
+$route_match = \Drupal::routeMatch();
+$title = \Drupal::service('title_resolver')->getTitle($request, $route_match->getRouteObject());
+$current_url = $request->getUri();
+
+  $nid = $vars['node']->id();
+
+  //$url = Url::fromRoute("node.{$nid}");
+$url = $vars['node']->toUrl();
+  $read_more_options = array(
+    'attributes' => array(
+      'class' => array(
+        'read-more-link',
+      ),
+    ),
+  );
+  $url->setOptions($read_more_options);
+  $read_more_link = \Drupal::l(t('Read More'), $url);
+//dpm($read_more_link->getGeneratedLink());
+
+//dpm(gettype($vars['content']['body'][0]['#text']));
+//dpm(array_keys($vars['content']['body'][0]['#text']));
+//dpm((string) $read_more_link);
+dpm($vars['content']['body']);
+  //$vars['content']['body'] .= (string) $read_more_link; //->getGeneratedLink();
+//dpm(($vars['content']));
+}
+*/
