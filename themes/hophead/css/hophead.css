@@ -1,6 +1,6 @@
 article.teaser div.field--name-field-image img {
   border-radius: 50%;
-  border-color: #000;
+  border-color: #36454F;
   border-style: solid;
   height: 200px;
   width: 200px;
@@ -15,8 +15,21 @@ article.teaser h2 {
   margin-top: 0px;
 }
 
+body.page-node-type-article div.region-content h1.page-header {
+  border: 7px solid #36454F;
+  margin-bottom: 0px;
+  color: white;
+  background: #36454F;
+}
+
+body.page-node-type-article div.field--name-field-image {
+  border: 7px solid #36454F;
+  margin-bottom: 7px;
+  background: #36454F;
+}
+
 div.region-content h1.page-header {
-  border-top: 7px solid #000;
+  border-top: 7px solid #36454F;
   border-bottom: none;
   padding-top: 10px;
 }
@@ -31,11 +44,11 @@ div.region-header {
 }
 
 a {
-  color: #000;
+  color: #36454F;
 }
 
 a:hover {
-  color: #000;
+  color: #36454F;
   border-bottom: px dotted red;
   text-decoration: none;
 }
