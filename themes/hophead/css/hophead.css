@@ -1,10 +1,12 @@
-article.teaser div.field--name-field-image img {
-  border-radius: 50%;
-  border-color: #36454F;
-  border-style: solid;
-  height: 200px;
-  width: 200px;
-  border-width: 7px;
+@media all and (min-width: 992px) {
+  article.teaser div.field--name-field-image img {
+    border-radius: 50%;
+    border-color: #36454F;
+    border-style: solid;
+    height: 200px;
+    width: 200px;
+    border-width: 7px;
+  }
 }
 
 article {
