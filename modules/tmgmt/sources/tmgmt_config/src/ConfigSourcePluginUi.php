@@ -59,29 +59,17 @@ class ConfigSourcePluginUi extends SourcePluginUiBase {
       );
     }
 
-    $language_options = array();
-    foreach (\Drupal::languageManager()->getLanguages() as $langcode => $language) {
-      $language_options[$langcode] = $language->getName();
-    }
-
     $form['search_wrapper']['search']['langcode'] = array(
-      '#type' => 'select',
+      '#type' => 'language_select',
       '#title' => t('Source Language'),
-      '#options' => $language_options,
-      '#empty_option' => t('All'),
+      '#empty_option' => t('- Any -'),
       '#default_value' => isset($_GET['langcode']) ? $_GET['langcode'] : NULL,
     );
 
-    $options = array();
-    foreach (\Drupal::languageManager()->getLanguages() as $langcode => $language) {
-      $options[$langcode] = $language->getName();
-    }
-
     $form['search_wrapper']['search']['target_language'] = array(
-      '#type' => 'select',
+      '#type' => 'language_select',
       '#title' => $this->t('Target language'),
-      '#options' => $options,
-      '#empty_option' => $this->t('Any'),
+      '#empty_option' => $this->t('- Any -'),
       '#default_value' => isset($_GET['target_language']) ? $_GET['target_language'] : NULL,
     );
     $form['search_wrapper']['search']['target_status'] = array(
@@ -111,6 +99,7 @@ class ConfigSourcePluginUi extends SourcePluginUiBase {
   public function overviewFormHeader($type) {
     $header = array(
       'title' => array('data' => $this->t('Title (in source language)')),
+      'config_id' => array('data' => $this->t('Configuration ID')),
     );
 
     $header += $this->getLanguageHeader();
@@ -136,13 +125,17 @@ class ConfigSourcePluginUi extends SourcePluginUiBase {
     // Get current job items for the entity to determine translation statuses.
     $source_lang = $entity->language()->getId();
     $current_job_items = tmgmt_job_item_load_latest('config', $entity->getEntityTypeId(), $entity->getConfigDependencyName(), $source_lang);
+    $row['id'] = $entity->id();
+    $definition = \Drupal::entityTypeManager()->getDefinition($entity->bundle());
+    $row['config_id'] = $definition->getConfigPrefix() . '.' . $entity->id();
 
-    $row = array(
-      'id' => $entity->id(),
-      // If the entity type is FieldConfig, we list the field of the fieldable
-      // entity type which doesn't have a link.
-      'title' => $entity->url('edit-form') ? $entity->link($label) : $label,
-    );
+    if ($entity->hasLinkTemplate('edit-form')) {
+      $row['title'] = $entity->toLink($label, 'edit-form');
+    }
+    else {
+      // If the entity doesn't have a link we display a label.
+      $row['title'] = $label;
+    }
 
     // Load entity translation specific data.
     foreach (\Drupal::languageManager()->getLanguages() as $langcode => $language) {
@@ -158,15 +151,12 @@ class ConfigSourcePluginUi extends SourcePluginUiBase {
 
       // @todo Find a way to support marking configuration translations as outdated.
 
-      $array = array(
-        '#theme' => 'tmgmt_translation_language_status_single',
-        '#translation_status' => $translation_status,
-        '#job_item' => isset($current_job_items[$langcode]) ? $current_job_items[$langcode] : NULL,
-      );
-      $row['langcode-' . $langcode] = array(
-        'data' => \Drupal::service('renderer')->render($array),
+      $build = $this->buildTranslationStatus($translation_status, isset($current_job_items[$langcode]) ? $current_job_items[$langcode] : NULL);
+      $row['langcode-' . $langcode] = [
+        'data' => \Drupal::service('renderer')->render($build),
         'class' => array('langstatus-' . $langcode),
-      );
+      ];
+
     }
     return $row;
   }
@@ -205,15 +195,11 @@ class ConfigSourcePluginUi extends SourcePluginUiBase {
 
       // @todo Find a way to support marking configuration translations as outdated.
 
-      $array = array(
-        '#theme' => 'tmgmt_translation_language_status_single',
-        '#translation_status' => $translation_status,
-        '#job_item' => isset($current_job_items[$langcode]) ? $current_job_items[$langcode] : NULL,
-      );
-      $row['langcode-' . $langcode] = array(
-        'data' => \Drupal::service('renderer')->render($array),
+      $build = $this->buildTranslationStatus($translation_status, isset($current_job_items[$langcode]) ? $current_job_items[$langcode] : NULL);
+      $row['langcode-' . $langcode] = [
+        'data' => \Drupal::service('renderer')->render($build),
         'class' => array('langstatus-' . $langcode),
-      );
+      ];
     }
     return $row;
   }

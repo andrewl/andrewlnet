@@ -1,6 +1,6 @@
 <?php
 
-/*
+/**
  * @file
  * Contains \Drupal\tmgmt_local\Entity\LocalTaskItem.
  */
@@ -8,13 +8,14 @@
 namespace Drupal\tmgmt_local\Entity;
 
 use Drupal\Component\Utility\NestedArray;
-use Drupal\Core\Entity\Annotation\ContentEntityType;
+use Drupal\Core\Cache\Cache;
 use Drupal\Core\Entity\ContentEntityBase;
-use Drupal\Core\Entity\EntityChangedInterface;
+use Drupal\Core\Entity\EntityChangedTrait;
 use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\Core\Entity\EntityTypeInterface;
 use Drupal\Core\Field\BaseFieldDefinition;
 use Drupal\Core\Render\Element;
+use Drupal\tmgmt_local\LocalTaskItemInterface;
 
 
 /**
@@ -23,29 +24,44 @@ use Drupal\Core\Render\Element;
  * @ContentEntityType(
  *   id = "tmgmt_local_task_item",
  *   label = @Translation("Translation Task Item"),
- *   controllers = {
+ *   handlers = {
  *     "access" = "Drupal\tmgmt_local\Entity\Controller\LocalTaskItemAccessController",
  *     "form" = {
- *       "edit" = "Drupal\tmgmt_local\Entity\Form\LocalTaskItemFormController"
+ *       "edit" = "Drupal\tmgmt_local\Form\LocalTaskItemForm"
  *     },
+ *     "list_builder" = "Drupal\tmgmt_local\Entity\ListBuilder\LocalTaskItemListBuilder",
+ *     "view_builder" = "Drupal\Core\Entity\EntityViewBuilder",
+ *     "views_data" = "Drupal\tmgmt_local\Entity\ViewsData\LocalTaskItemViewsData",
  *   },
  *   base_table = "tmgmt_local_task_item",
  *   entity_keys = {
- *     "id" = "tjiid",
+ *     "id" = "tltiid",
  *     "uuid" = "uuid"
+ *   },
+ *   links = {
+ *     "canonical" = "/translate/items/{tmgmt_local_task_item}",
  *   }
  * )
  *
  * @ingroup tmgmt_local_task
  */
-class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface {
+class LocalTaskItem extends ContentEntityBase implements LocalTaskItemInterface {
+
+  use EntityChangedTrait;
+
+  /**
+   * Holds the unserialized source data.
+   *
+   * @var array
+   */
+  protected $unserializedData;
 
   /**
    * {@inheritdoc}
    */
   public static function baseFieldDefinitions(EntityTypeInterface $entity_type) {
     $fields['tltiid'] = BaseFieldDefinition::create('integer')
-      ->setLabel(t('Local Task ID'))
+      ->setLabel(t('Local Task Item ID'))
       ->setDescription(t('The Local Task Item ID.'))
       ->setReadOnly(TRUE)
       ->setSetting('unsigned', TRUE);
@@ -67,20 +83,6 @@ class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface 
       ->setDescription(t('The job item UUID.'))
       ->setReadOnly(TRUE);
 
-    $fields['item_type'] = BaseFieldDefinition::create('string')
-      ->setLabel(t('Item Type'))
-      ->setDescription(t('The item type of this job item.'))
-      ->setSettings(array(
-        'max_length' => 255,
-      ));
-
-    $fields['item_id'] = BaseFieldDefinition::create('string')
-      ->setLabel(t('Item ID'))
-      ->setDescription(t('The item ID of this job item.'))
-      ->setSettings(array(
-        'max_length' => 255,
-      ));
-
     $fields['data'] = BaseFieldDefinition::create('string_long')
       ->setLabel(t('Data'))
       ->setDescription(t('The source data'));
@@ -88,25 +90,21 @@ class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface 
     $fields['status'] = BaseFieldDefinition::create('integer')
       ->setLabel(t('Local task item status'))
       ->setDescription(t('The local task item status'))
-      ->setDefaultValue(TMGMT_LOCAL_TASK_ITEM_STATUS_PENDING);
+      ->setDefaultValue(LocalTaskItemInterface::STATUS_PENDING);
 
     $fields['changed'] = BaseFieldDefinition::create('changed')
       ->setLabel(t('Changed'))
       ->setDescription(t('The time that the job was last edited.'));
 
-    $fields['count_pending'] = BaseFieldDefinition::create('integer')
-      ->setLabel(t('Pending count'))
+    $fields['count_untranslated'] = BaseFieldDefinition::create('integer')
+      ->setLabel(t('Untranslated count'))
       ->setSetting('unsigned', TRUE);
 
     $fields['count_translated'] = BaseFieldDefinition::create('integer')
       ->setLabel(t('Translated count'))
       ->setSetting('unsigned', TRUE);
 
-    $fields['count_reviewed'] = BaseFieldDefinition::create('integer')
-      ->setLabel(t('Reviewed count'))
-      ->setSetting('unsigned', TRUE);
-
-    $fields['count_accepted'] = BaseFieldDefinition::create('integer')
+    $fields['count_completed'] = BaseFieldDefinition::create('integer')
       ->setLabel(t('Accepted count'))
       ->setSetting('unsigned', TRUE);
 
@@ -120,14 +118,7 @@ class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface 
   /**
    * {@inheritdoc}
    */
-  public function getChangedTime() {
-    $this->get('changed')->value;
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  protected function defaultLabel() {
+  public function label() {
     if ($job_item = $this->getJobItem()) {
       return $job_item->label();
     }
@@ -135,80 +126,74 @@ class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface 
   }
 
   /**
-   * Returns the translation task.
-   *
-   * @return LocalTask
+   * {@inheritdoc}
    */
   public function getTask() {
-    $this->get('tltid')->entity;
+    return $this->get('tltid')->entity;
   }
 
   /**
-   * Returns the translation job item.
-   *
-   * @return \Drupal\tmgmt\JobItemInterface
+   * {@inheritdoc}
    */
   public function getJobItem() {
     return $this->get('tjiid')->entity;
   }
 
   /**
-   * Returns TRUE if the local task is pending.
-   *
-   * @return bool
-   *   TRUE if the local task item is untranslated.
+   * {@inheritdoc}
+   */
+  public function getStatus() {
+    return $this->get('status')->value;
+  }
+
+  /**
+   * {@inheritdoc}
    */
   public function isPending() {
-    return $this->status->value == TMGMT_LOCAL_TASK_ITEM_STATUS_PENDING;
+    return $this->get('status')->value == LocalTaskItemInterface::STATUS_PENDING;
   }
 
   /**
-   * Returns TRUE if the local task is translated (fully translated).
-   *
-   * @return bool
-   *   TRUE if the local task item is translated.
+   * {@inheritdoc}
    */
   public function isCompleted() {
-    return $this->status->value == TMGMT_LOCAL_TASK_ITEM_STATUS_COMPLETED;
+    return $this->get('status')->value == LocalTaskItemInterface::STATUS_COMPLETED;
   }
 
   /**
-   * Rreturns TRUE if the local task is closed (translated and accepted).
-   *
-   * @return bool
-   *   TRUE if the local task item is translated and accepted.
+   * {@inheritdoc}
    */
   public function isClosed() {
-    return $this->status->value == TMGMT_LOCAL_TASK_ITEM_STATUS_CLOSED;
+    return $this->get('status')->value == LocalTaskItemInterface::STATUS_CLOSED;
   }
 
   /**
-   * Sets the task item status to completed.
+   * {@inheritdoc}
    */
   public function completed() {
-    $this->status = TMGMT_LOCAL_TASK_ITEM_STATUS_COMPLETED;
+    $this->set('status', LocalTaskItemInterface::STATUS_COMPLETED);
   }
 
   /**
-   * Sets the task item status to closed.
+   * {@inheritdoc}
    */
   public function closed() {
-    $this->status = TMGMT_LOCAL_TASK_ITEM_STATUS_CLOSED;
+    $this->set('status', LocalTaskItemInterface::STATUS_CLOSED);
   }
 
   /**
-   * Updates the values for a specific substructure in the data array.
-   *
-   * The values are either set or updated but never deleted.
-   *
-   * @param $key
-   *   Key pointing to the item the values should be applied.
-   *   The key can be either be an array containing the keys of a nested array
-   *   hierarchy path or a string with '][' or '|' as delimiter.
-   * @param $values
-   *   Nested array of values to set.
+   * {@inheritdoc}
    */
-  public function updateData($key, $values = array()) {
+  public function updateData($key, $values = array(), $replace = FALSE) {
+    if ($replace) {
+      if (!is_array($this->unserializedData)) {
+        $this->unserializedData = unserialize($this->get('data')->value);
+        if (!is_array($this->unserializedData)) {
+          $this->unserializedData = array();
+        }
+      }
+      NestedArray::setValue($this->unserializedData, \Drupal::service('tmgmt.data')->ensureArrayKey($key), $values);
+    }
     foreach ($values as $index => $value) {
       // In order to preserve existing values, we can not aplly the values array
       // at once. We need to apply each containing value on its own.
@@ -218,114 +203,125 @@ class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface 
       }
       // Apply the value.
       else {
-        NestedArray::setValue($this->data, array_merge(\Drupal::service('tmgmt.data')->tmgmt_ensure_keys_array($key), array($index)), $value);
+        if (!is_array($this->unserializedData)) {
+          $this->unserializedData = unserialize($this->get('data')->value);
+        }
+        NestedArray::setValue($this->unserializedData, array_merge(\Drupal::service('tmgmt.data')->ensureArrayKey($key), array($index)), $value, TRUE);
       }
     }
   }
 
   /**
-   * Array of translations.
-   *
-   * The structure is similar to the form API in the way that it is a possibly
-   * nested array with the following properties whose presence indicate that the
-   * current element is a text that might need to be translated.
-   *
-   * - #text: The translated text of the corresponding entry in the job item.
-   * - #status: The status of the translation.
-   *
-   * The key can be an alphanumeric string.
-   *
-   * @param array $key
-   *   If present, only the subarray identified by key is returned.
-   * @param string $index
-   *   Optional index of an attribute below $key.
-   *
-   * @return array
-   *   A structured data array.
+   * {@inheritdoc}
    */
-  public function getData(array $key = array(), $index = NULL) {
+  public function getData($key = array(), $index = NULL) {
+    if (empty($this->unserializedData) && $this->get('data')->value) {
+      $this->unserializedData = unserialize($this->get('data')->value);
+    }
+    if (empty($this->unserializedData) && $this->getTask()) {
+      // Load the data from the source if it has not been set yet.
+      $this->unserializedData = $this->getJobItem()->getData();
+      $this->save();
+    }
     if (empty($key)) {
-      return $this->data;
+      return $this->unserializedData;
     }
     if ($index) {
       $key = array_merge($key, array($index));
     }
-    return NestedArray::getValue($this->data, $key);
+    return NestedArray::getValue($this->unserializedData, $key);
   }
-
-  /**
-   * Count of all translated data items.
-   *
-   * @return
-   *   Translated count
-   */
-  public function getCountTranslated() {
-    return $this->count_translated;
-  }
-
-  /**
-   * Count of all untranslated data items.
-   *
-   * @return
-   *   Translated count
-   */
-  public function getCountUntranslated() {
-    return $this->count_untranslated;
-  }
-
-  /**
-   * Count of all completed data items.
-   *
-   * @return
-   *   Translated count
-   */
-  public function getCountCompleted() {
-    return $this->count_completed;
-  }
-
 
   /**
    * {@inheritdoc}
    */
-  public function preSave(EntityStorageInterface $storage_controller) {
-    parent::preSave($storage_controller);
-    // @todo Eliminate the need to flatten and unflatten the TaskItem data.
-    // Consider everything translated when the job item is translated.
-    $data_service = \Drupal::service('tmgmt.data');
-    if ($this->isCompleted()) {
-      $this->count_untranslated = 0;
-      $this->count_translated = count($data_service->flattenData($this->data));
-      $this->count_completed = 0;
+  public function getCountTranslated() {
+    return $this->get('count_translated')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getCountUntranslated() {
+    return $this->get('count_untranslated')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getCountCompleted() {
+    return $this->get('count_completed')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getWordCount() {
+    return $this->get('word_count')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function preSave(EntityStorageInterface $storage) {
+    parent::preSave($storage);
+    if ($this->getTask()) {
+      $this->recalculateStatistics();
     }
-    // Consider everything completed if the job is completed.
-    elseif ($this->isClosed()) {
-      $this->count_untranslated = 0;
-      $this->count_translated = 0;
-      $this->count_completed = count($data_service->flattenData($this->data));
+    if ($this->unserializedData) {
+      $this->set('data', serialize($this->unserializedData));
     }
-    // Count the data item states.
-    else {
-      // Start with assuming that all data is untranslated, then go through it
-      // and count translated data.
-      $this->count_untranslated = count(\Drupal::service('tmgmt.data')->filterTranslatable($this->getData()));
-      $this->count_translated = 0;
-      $this->count_completed = 0;
-      $this->count($this->data);
+    elseif (empty($this->get('data')->value)) {
+      $this->set('data', serialize(array()));
     }
   }
 
   /**
+   * {@inheritdoc}
+   */
+  public function recalculateStatistics() {
+    // Set translatable data from the current entity to calculate words.
+    if (empty($this->unserializedData) && $this->get('data')->value) {
+      $this->unserializedData = unserialize($this->get('data')->value);
+    }
+
+    if (empty($this->unserializedData)) {
+      $this->unserializedData = $this->getJobItem()->getData();
+    }
+
+    // Consider everything accepted when the job item is accepted.
+    if ($this->isCompleted() || $this->isClosed()) {
+      $this->set('count_translated', 0);
+      $this->set('count_completed', count(array_filter(\Drupal::service('tmgmt.data')->flatten($this->unserializedData), array(\Drupal::service('tmgmt.data'), 'filterData'))));
+      $this->set('count_untranslated', 0);
+    }
+    // Count the data item states.
+    else {
+      // Reset counter values.
+      $this->set('count_translated', 0);
+      $this->set('count_completed', 0);
+      $this->set('word_count', 0);
+      $this->set('count_untranslated', count(array_filter(\Drupal::service('tmgmt.data')->flatten($this->unserializedData), array(\Drupal::service('tmgmt.data'), 'filterData'))));
+      $this->count($this->unserializedData);
+    }
+  }
+
+  /**
+   * Counts accepted, translated and pending items.
+   *
    * Parse all data items recursively and sums up the counters for
    * accepted, translated and pending items.
    *
-   * @param $item
+   * @param array $item
    *   The current data item.
-   * @param $this
-   *   The job item the count should be calculated.
    */
-  protected function count(&$item) {
+  protected function count(array &$item) {
     if (!empty($item['#text'])) {
       if (\Drupal::service('tmgmt.data')->filterData($item)) {
+
+        // Count words of the data item.
+        $text = is_array($item['#text']) ? $item['#text']['value'] : $item['#text'];
+        $this->set('word_count', $this->get('word_count')->value + \Drupal::service('tmgmt.data')->wordCount($text));
 
         // Set default states if no state is set.
         if (!isset($item['#status'])) {
@@ -333,8 +329,8 @@ class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface 
         }
         switch ($item['#status']) {
           case TMGMT_DATA_ITEM_STATE_TRANSLATED:
-            $this->count_untranslated--;
-            $this->count_translated++;
+            $this->set('count_untranslated', $this->get('count_untranslated')->value - 1);
+            $this->set('count_translated', $this->get('count_translated')->value + 1);
             break;
         }
       }
@@ -344,6 +340,40 @@ class LocalTaskItem extends ContentEntityBase implements EntityChangedInterface 
         $this->count($item[$key]);
       }
     }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getChangedTimeAcrossTranslations() {
+    return $this->getChangedTime();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function invalidateTagsOnSave($update) {
+    parent::invalidateTagsOnSave($update);
+    $tags = $this->getTask()->getEntityType()->getListCacheTags();
+    if ($update) {
+      $tags = Cache::mergeTags($tags, $this->getTask()->getCacheTagsToInvalidate());
+    }
+    Cache::invalidateTags($tags);
+  }
+
+  /**
+   * Retrieve a labeled list of all available statuses for task items.
+   *
+   * @return array
+   *   A list of all available statuses.
+   */
+  public static function getStatuses() {
+    return array(
+      LocalTaskItemInterface::STATUS_PENDING => t('Untranslated'),
+      LocalTaskItemInterface::STATUS_COMPLETED => t('Translated'),
+      LocalTaskItemInterface::STATUS_REJECTED => t('Rejected'),
+      LocalTaskItemInterface::STATUS_CLOSED => t('Completed'),
+    );
   }
 
 }

@@ -10,6 +10,7 @@ namespace Drupal\tmgmt;
 use Drupal\Component\Plugin\PluginBase as ComponentPluginBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Element;
+use Drupal\tmgmt\Form\TranslatorForm;
 
 /**
  * Default ui controller class for translator plugins.
@@ -89,6 +90,40 @@ class TranslatorPluginUiBase extends ComponentPluginBase implements TranslatorPl
    * {@inheritdoc}
    */
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
+    return $form;
+  }
+
+  /**
+   * Handles submit call of "Connect" button.
+   */
+  public function submitConnect(array $form, FormStateInterface $form_state) {
+    // When this method is called the form already passed validation and we can
+    // assume that credentials are valid.
+    drupal_set_message(t('Successfully connected!'));
+  }
+
+  /**
+   * Adds a "Connect" button to a form.
+   *
+   * @return array
+   *   A form array containing "Connect" button.
+   */
+  public function addConnectButton() {
+    $form['connect'] = array(
+      '#type' => 'submit',
+      '#value' => t('Connect'),
+      '#submit' => [
+        [TranslatorForm::class, 'updateRemoteLanguagesMappings'],
+        [$this, 'submitConnect'],
+      ],
+      '#limit_validation_errors' => array(array('settings')),
+      '#executes_submit_callback' => TRUE,
+      '#ajax' => [
+        'callback' => [TranslatorForm::class, 'ajaxTranslatorPluginSelect'],
+        'wrapper' => 'tmgmt-plugin-wrapper',
+      ],
+    );
+
     return $form;
   }
 

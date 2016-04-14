@@ -3,13 +3,16 @@ tmgmt.settings:
   label: 'TMGMT settings'
   mapping:
     quick_checkout:
-      type: integer
+      type: boolean
       label: 'Allow quick-checkout'
+    anonymous_access:
+      type: boolean
+      label: 'Allow access to source for translators'
     purge_finished:
       type: string
       label: 'Purge finished jobs'
     respect_text_format:
-      type: integer
+      type: boolean
       label: 'Respect text format'
     word_count_exclude_tags:
       type: boolean
@@ -17,17 +20,23 @@ tmgmt.settings:
     source_list_limit:
       type: integer
       label: 'Source list limit'
+    submit_job_item_on_cron:
+      type: boolean
+      label: 'Submit job item on cron'
+    job_items_cron_limit:
+      type: integer
+      label: 'Number of job items to process on cron'
 
 tmgmt.translator.*:
   type: config_entity
-  label: 'Translator'
+  label: 'Provider'
   mapping:
     name:
       type: label
       label: 'Machine readable name of the translator'
     label:
       type: label
-      label: 'Translator label'
+      label: 'Provider label'
     description:
       type: string
       label: 'Description'
@@ -39,7 +48,7 @@ tmgmt.translator.*:
       label: 'Weight of the translator'
     plugin:
       type: string
-      label: 'Translator plugin'
+      label: 'Provider plugin'
     settings:
       type: tmgmt.translator.settings.[%parent.plugin]
     remote_languages_mappings:
@@ -55,3 +64,15 @@ views.access.tmgmt_job:
 tmgmt.translator_base:
   type: mapping
   mapping: { }
+
+views.filter.tmgmt_job_type_filter:
+  type: views.filter.in_operator
+  label: 'Job type'
+  mapping:
+    expose:
+      type: mapping
+      label: 'Expose'
+      mapping:
+        hide_no_continuous:
+          type: boolean
+          label: 'Hide this filter if there are no continuous jobs.'

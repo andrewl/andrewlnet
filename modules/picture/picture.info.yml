@@ -1,0 +1,14 @@
+name: Picture
+type: module
+description: 'Provides an extended UI for the Responsive Image module with support for the size attribute.'
+package: Responsive Image
+# core: 8.x
+dependencies:
+  - responsive_image
+configure: responsive_image.mapping_page
+
+# Information added by Drupal.org packaging script on 2015-04-15
+version: '8.x-1.0+33-dev'
+core: '8.x'
+project: 'picture'
+datestamp: 1429103299

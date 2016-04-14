@@ -8,8 +8,6 @@ namespace Drupal\tmgmt;
 
 use Drupal\Core\Entity\ContentEntityInterface;
 use Drupal\Core\Session\AccountInterface;
-use Drupal\tmgmt\Entity\JobItem;
-use Drupal\tmgmt\Entity\Translator;
 use Drupal\user\EntityOwnerInterface;
 
 /**
@@ -65,9 +63,33 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
   const STATE_FINISHED = 5;
 
   /**
+   * A continuous translation job.
+   *
+   * A default state for all continuous jobs.
+   */
+  const STATE_CONTINUOUS = 6;
+
+  /**
+   * A continuous translation job has been inactivated.
+   *
+   * Inactive state for continuous translation jobs.
+   */
+  const STATE_CONTINUOUS_INACTIVE = 7;
+
+  /**
    * Maximum length of a job or job item label.
    */
   const LABEL_MAX_LENGTH = 128;
+
+  /**
+   * Translation job of type Normal.
+   */
+  const TYPE_NORMAL = 'normal';
+
+  /**
+   * Translation job of type Continuous.
+   */
+  const TYPE_CONTINUOUS = 'continuous';
 
   /**
    * Returns the target language.
@@ -124,6 +146,22 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
    *   The reference set by the translator.
    */
   public function getReference();
+
+  /**
+   * Returns the job type.
+   *
+   * @return string
+   *   The job type.
+   */
+  public function getJobType();
+
+  /**
+   * Returns continuous settings.
+   *
+   * @return array
+   *   Continuous settings.
+   */
+  public function getContinuousSettings();
 
   /**
    * Clones job as unprocessed.
@@ -184,6 +222,22 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
    *   An array of translation job items.
    */
   public function getItems($conditions = array());
+
+  /**
+   * Returns most recent job item attached to this job.
+   *
+   * @param string $plugin
+   *   The plugin name.
+   * @param string $item_type
+   *   Source item type.
+   * @param string $item_id
+   *   Source item ID.
+   *
+   * @return \Drupal\tmgmt\JobItemInterface|null
+   *   The most recent job item that matches that source or NULL if none
+   *   exists.
+   */
+  public function getMostRecentItem($plugin, $item_type, $item_id);
 
   /**
    * Returns all job messages attached to this job.
@@ -251,15 +305,24 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
   /**
    * Returns the translator ID for this job.
    *
-   * @return int
+   * @return int|null
    *   The translator ID or NULL if there is none.
    */
   public function getTranslatorId();
 
   /**
+   * Returns the label of the translator for this job.
+   *
+   * @return \Drupal\Core\StringTranslation\TranslatableMarkup|string
+   *   The label of the translator, "(Missing)" in case the translator has
+   *   been deleted or "(Undefined)" in case the translator is not set.
+   */
+  public function getTranslatorLabel();
+
+  /**
    * Returns the translator for this job.
    *
-   * @return Translator
+   * @return \Drupal\tmgmt\Entity\Translator
    *   The translator entity.
    *
    * @throws \Drupal\tmgmt\TMGMTException
@@ -358,12 +421,28 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
   public function isRejected();
 
   /**
-   * Returns whether the state of this jon is 'finished'.
+   * Returns whether the state of this job is 'finished'.
    *
    * @return bool
    *   TRUE if the state is 'finished', FALSE otherwise.
    */
   public function isFinished();
+
+  /**
+   * Returns whether the state of this job is 'continuous'.
+   *
+   * @return bool
+   *   TRUE if the state is 'continuous', FALSE otherwise.
+   */
+  public function isContinuousActive();
+
+  /**
+   * Returns whether the state of this jon is 'continuous_inactive'.
+   *
+   * @return bool
+   *   TRUE if the state is 'continuous_inactive', FALSE otherwise.
+   */
+  public function isContinuousInactive();
 
   /**
    * Checks whether a job is translatable.
@@ -396,6 +475,14 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
    *   TRUE if the job can be deleted, FALSE otherwise.
    */
   public function isDeletable();
+
+  /**
+   * Checks whether a job type is continuous.
+   *
+   * @return bool
+   *   TRUE if the job is continuous, FALSE otherwise.
+   */
+  public function isContinuous();
 
   /**
    * Set the state of the job to 'submitted'.
@@ -554,18 +641,36 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
   public function getWordCount();
 
   /**
+   * Sums up all HTML tags counts of this jobs job items.
+   *
+   * @return int
+   *   The total tags count of this job.
+   */
+  public function getTagsCount();
+
+  /**
    * Store translated data back into the items.
    *
    * @param array $data
    *   Partially or complete translated data, the most upper key needs to be
    *   the translation job item id.
    * @param array|string $key
-   *   (Optional) Either a flattened key (a 'key1][key2][key3' string) or a nested
-   *   one, e.g. array('key1', 'key2', 'key2'). Defaults to an empty array which
-   *   means that it will replace the whole translated data array. The most
-   *   upper key entry needs to be the job id (tjiid).
+   *   (Optional) Either a flattened key (a 'key1][key2][key3' string) or a
+   *   nested one, e.g. array('key1', 'key2', 'key2'). Defaults to an empty
+   *   array which means that it will replace the whole translated data array.
+   *   The most upper key entry needs to be the job id (tjiid).
+   * @param int|null $status
+   *   (Optional) The data item status that will be set. Defaults to NULL,
+   *   which means that it will be set to translated unless it was previously
+   *   set to preliminary, then it will keep that state.
+   *   Explicitly pass TMGMT_DATA_ITEM_STATE_TRANSLATED or
+   *   TMGMT_DATA_ITEM_STATE_PRELIMINARY to set it to that value.
+   *   Other statuses are not supported.
+   *
+   * @throws \Drupal\tmgmt\TMGMTException
+   *   If is given an unsupported status.
    */
-  public function addTranslatedData(array $data, $key = NULL);
+  public function addTranslatedData(array $data, $key = NULL, $status = NULL);
 
   /**
    * Propagates the returned job item translations to the sources.
@@ -617,5 +722,16 @@ interface JobInterface extends ContentEntityInterface, EntityOwnerInterface {
    *   A list of all available states.
    */
   public static function getStates();
+
+  /**
+   * Returns conflicting job item IDs.
+   *
+   * Conflicting job items are those that already have an identical item
+   * in another job that is not yet finished.
+   *
+   * @return int[]
+   *   List of conflicting job item IDs.
+   */
+  public function getConflictingItemIds();
 
 }

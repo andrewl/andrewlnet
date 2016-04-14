@@ -1,9 +1,21 @@
 <?php
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\ProxyClass\Routing\RouteBuilder;
+use Drupal\Core\RouteProcessor\RouteProcessorManager;
+use Drupal\Core\Routing\RouteBuildEvent;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\tmgmt_local\LocalTaskInterface;
+use Drupal\tmgmt_local\LocalTaskItemInterface;
+use Drupal\user\Entity\User;
 use Drupal\tmgmt\Entity\Translator;
 use Drupal\tmgmt\JobInterface;
 use Drupal\tmgmt\JobItemInterface;
 use Drupal\tmgmt_local\Entity\LocalTask;
+use Drupal\user\UserInterface;
+use Drupal\views\Views;
+use Symfony\Component\Routing\Router;
 
 /**
  * @file
@@ -35,54 +47,14 @@ define('TMGMT_LOCAL_TRANSLATION_ACCESS_DENY', 'deny');
 define('TMGMT_LOCAL_TRANSLATION_ACCESS_IGNORE', NULL);
 
 /**
- * Translation task is not assigned to translator.
- */
-define('TMGMT_LOCAL_TASK_STATUS_UNASSIGNED', 0);
-
-/**
- * Translation task is pending.
- */
-define('TMGMT_LOCAL_TASK_STATUS_PENDING', 1);
-
-/**
- * Translation task is completed (all job items are translated).
- */
-define('TMGMT_LOCAL_TASK_STATUS_COMPLETED', 2);
-
-/**
- * Translation task is rejected (at least some job items are rejected).
- */
-define('TMGMT_LOCAL_TASK_STATUS_REJECTED', 3);
-
-/**
- * Translation task is closed.
- */
-define('TMGMT_LOCAL_TASK_STATUS_CLOSED', 4);
-
-/**
- * Translation task item is untranslated.
- */
-define('TMGMT_LOCAL_TASK_ITEM_STATUS_PENDING', 0);
-
-/**
- * Translation task item is translated and pending review of the job item.
- */
-define('TMGMT_LOCAL_TASK_ITEM_STATUS_COMPLETED', 1);
-
-/**
- * Translation job item has been rejected and the task needs to be updated.
- */
-define('TMGMT_LOCAL_TASK_ITEM_STATUS_REJECTED', 2);
-
-/**
- * The translation task item has been completed and closed.
- */
-define('TMGMT_LOCAL_TASK_ITEM_STATUS_CLOSED', 3);
-
-/**
  * Untranslated translation data item.
  */
 define('TMGMT_DATA_ITEM_STATE_UNTRANSLATED', 0);
+
+/**
+ * Completed translation data item.
+ */
+define('TMGMT_DATA_ITEM_STATE_COMPLETED', 3);
 
 /**
  * @} End of "tmgmt_local_task".
@@ -95,55 +67,110 @@ function tmgmt_local_theme() {
   return array(
     'tmgmt_local_translation_form' => array(
       'render element' => 'element',
-      'file' => 'includes/tmgmt_local.theme.inc',
+      'file' => 'tmgmt_local.theme.inc',
     ),
     'tmgmt_local_translation_form_element' => array(
       'render element' => 'element',
-      'file' => 'includes/tmgmt_local.theme.inc',
+      'file' => 'tmgmt_local.theme.inc',
+      'function' => 'tmgmt_local_translation_form_element',
     ),
-    // @todo - not implemented.
     'tmgmt_local_translation_form_element_status' => array(
       'render element' => 'status',
-      'file' => 'includes/tmgmt_local.theme.inc',
+      'file' => 'tmgmt_local.theme.inc',
+      'function' => 'theme_tmgmt_local_translation_form_element_status',
+    ),
+    'tmgmt_local_progress_bar' => array(
+      'variables' => array(
+        'title' => NULL,
+        'count_untranslated' => NULL,
+        'count_translated' => NULL,
+        'count_completed' => NULL,
+        'width_untranslated' => NULL,
+        'width_translated' => NULL,
+        'width_completed' => NULL,
+      ),
+    ),
+    'tmgmt_local_legend' => array(
+      'variables' => array(
+        'title' => NULL,
+        'items' => NULL,
+      ),
     ),
   );
 }
 
 /**
- * Implements hook_menu().
+ * Implements hook_menu_links_discovered_alter().
  */
-function tmgmt_local_menu() {
-  $items['translate/%tmgmt_local_task/assign-to-me'] = array(
-    'title' => 'Assign translation task to me',
-    'description' => 'Assign translation task to current translator user.',
-    'page callback' => 'tmgmt_local_translation_assign_to_me',
-    'page arguments' => array(1),
-    'access callback' => 'tmgmt_local_translation_access',
-    'access arguments' => array(1),
-    'file' => 'includes/tmgmt_local.pages.inc',
-  );
-  $items['manage-translate/assign-tasks'] = array(
-    'title' => 'Assign translation task',
-    'description' => 'Assign translation tasks to specific translator.',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('tmgmt_local_translation_assign_form', 2),
-    'access arguments' => array('administer translation tasks'),
-    'file' => 'includes/tmgmt_local.pages.inc',
-    'type' => MENU_CALLBACK,
-  );
-  $items['manage-translate/reassign-tasks'] = array(
-    'title' => 'Reassign translation task',
-    'description' => 'Ressign translation tasks to specific translator.',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('tmgmt_local_translation_reassign_form', 2),
-    'access arguments' => array('administer translation tasks'),
-    'file' => 'includes/tmgmt_local.pages.inc',
-    'type' => MENU_CALLBACK,
-  );
-
-  return $items;
+function tmgmt_local_menu_links_discovered_alter(&$links) {
+  // Display the menu item if one of the default past event views exists.
+  $view = NULL;
+  if ($view = Views::getView('tmgmt_local_manage_translate_task')) {
+    $view->initDisplay();
+    $links['tmgmt_local_manage_translate_task'] = [
+      'title' => new TranslatableMarkup('Manage tasks'),
+      'description' => new TranslatableMarkup('Overview the local translation process and manage the tasks.'),
+      'route_name' => $view->getUrl(NULL, 'unassigned')->getRouteName(),
+      'parent' => 'tmgmt.admin_tmgmt',
+      'menu_name' => 'admin',
+      'weight' => 50,
+    ];
+  }
+  if ($view = Views::getView('tmgmt_local_task_overview')) {
+    $view->initDisplay();
+    $links['tmgmt_local_task_overview'] = [
+      'title' => new TranslatableMarkup('Translate'),
+      'description' => new TranslatableMarkup('Perform task translations.'),
+      'route_name' => $view->getUrl(NULL, 'unassigned')->getRouteName(),
+      'parent' => 'tmgmt.admin_tmgmt',
+      'menu_name' => 'admin',
+      'weight' => 55,
+    ];
+    if (!\Drupal::config('tmgmt_local.settings')->get('use_admin_theme')) {
+      $links['tmgmt_local_task_overview']['menu_name'] = 'account';
+      unset($links['tmgmt_local_task_overview']['parent']);
+      unset($links['tmgmt_local_task_overview']['weight']);
+    }
+  }
 }
 
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function tmgmt_local_form_tmgmt_settings_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $config = \Drupal::configFactory()->getEditable('tmgmt_local.settings');
+
+  $form['local'] = array(
+    '#type' => 'details',
+    '#title' => t('Local translator'),
+    '#open' => TRUE,
+  );
+  $form['local']['use_admin_theme'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Use admin theme in local translator'),
+    '#description' => t("Enabling this will apply the admin theme over the local translator views. This means that the users will need he the 'view the administration theme' and 'access toolbar' permissions to use the local translator."),
+    '#default_value' => $config->get('use_admin_theme'),
+  );
+  $form['local']['allow_all'] = array(
+    '#title' => t('Allow translations for enabled languages even if no user has the necessary abilities'),
+    '#type' => 'checkbox',
+    '#default_value' => $config->get('allow_all'),
+  );
+  $form['#submit'][] = 'tmgmt_local_form_tmgmt_settings_form_submit';
+
+}
+
+/**
+ * Submit callback for tmgmt_settings_form.
+ */
+function tmgmt_local_form_tmgmt_settings_form_submit($form, FormStateInterface $form_state) {
+  $config = \Drupal::configFactory()->getEditable('tmgmt_local.settings');
+  if ($config->get('use_admin_theme') != $form_state->getValue('use_admin_theme')) {
+    $config->set('use_admin_theme', $form_state->getValue('use_admin_theme'))->save();
+    \Drupal::service('router.builder')->rebuild();
+  }
+  $config->set('allow_all', $form_state->getValue('allow_all'))->save();
+}
 
 /**
  * @addtogroup tmgmt_local
@@ -185,7 +212,7 @@ function tmgmt_local_translation_access(LocalTask $task, AccountInterface $accou
 
   // We grant access to the translation if both of the following conditions are
   // met:
-  // - User is assigned as a translator to the given task.
+  // - User is assigned as a assignee to the given task.
   // - User has 'provide translation services' permission.
   // - No modules say to deny access.
   // - At least one module says to grant access.
@@ -290,63 +317,16 @@ function tmgmt_local_task_delete_multiple(array $tltids) {
 }
 
 /**
- * Access callback for the local task entity.
- *
- * @param $op
- *   The operation being performed.
- * @param $item
- *   (Optional) A TMGMTLocalTask entity to check access for. If no entity is
- *   given, it will be determined whether access is allowed for all entities.
- * @param $account
- *   (Optional) The user to check for. Leave it to NULL to check for the global
- *   user.
- *
- * @return bool
- *   TRUE if access is allowed, FALSE otherwise.
+ * Implements hook_view_access().
  */
-function tmgmt_local_task_access($op, $task = NULL, $account = NULL) {
-  if (user_access('administer tmgmt', $account) || user_access('administer translation tasks', $account)) {
-    // Administrators can do everything.
-    return TRUE;
+function tmgmt_local_view_access(\Drupal\Core\Entity\EntityInterface $entity, $operation, \Drupal\Core\Session\AccountInterface $account) {
+  if ($entity->id() == 'tmgmt_local_task_overview') {
+    switch ($operation) {
+      case 'delete':
+        return AccessResult::forbidden();
+    }
   }
-
-  if (!$account) {
-    global $user;
-    $account = $user;
-  }
-
-  // @todo - probably need refinement when we introduce more module permissions.
-  switch ($op) {
-    case 'view':
-    case 'update':
-      return user_access('provide translation services', $account);
-      break;
-    case 'unassign':
-      return !empty($task->tuid) && $task->tuid == $account->id() && user_access('provide translation services', $account);
-  }
-}
-
-/**
- * Access callback for the local task item entity.
- *
- * @param $op
- *   The operation being performed.
- * @param $item
- *   (Optional) A TMGMTLocalTaskItem entity to check access for. If no entity is
- *   given, it will be determined whether access is allowed for all entities.
- * @param $account
- *   (Optional) The user to check for. Leave it to NULL to check for the global
- *   user.
- *
- * @return bool
- *   TRUE if access is allowed, FALSE otherwise.
- */
-function tmgmt_local_task_item_access($op, TMGMTLocalTaskItem $item = NULL, $account = NULL) {
-  $task = NULL;
-  if ($item) {
-    $task = $item->getTask();
-  }
-  return entity_access($op, 'tmgmt_local_task', $task, $account);
+  return AccessResult::neutral();
 }
 
 /**
@@ -413,42 +393,11 @@ function tmgmt_local_task_statistics_load(array $tltids) {
  *   The requested information as an integer.
  */
 function tmgmt_local_task_statistic(LocalTask $task, $key) {
-  $statistics = tmgmt_local_task_statistics_load(array($task->tltid));
-  if (isset($statistics[$task->tltid]->$key)) {
-    return $statistics[$task->tltid]->$key;
+  $statistics = tmgmt_local_task_statistics_load(array($task->id()));
+  if (isset($statistics[$task->id()]->$key)) {
+    return $statistics[$task->id()]->$key;
   }
   return 0;
-}
-
-/**
- * Retrieve a labeled list of all available statuses.
- *
- * @return array
- *   A list of all available statuses.
- */
-function tmgmt_local_task_statuses() {
-  return $statuses = array(
-    TMGMT_LOCAL_TASK_STATUS_UNASSIGNED => t('Unassigned'),
-    TMGMT_LOCAL_TASK_STATUS_PENDING => t('Pending'),
-    TMGMT_LOCAL_TASK_STATUS_COMPLETED => t('Completed'),
-    TMGMT_LOCAL_TASK_STATUS_REJECTED => t('Rejected'),
-    TMGMT_LOCAL_TASK_STATUS_CLOSED => t('Closed'),
-  );
-}
-
-/**
- * Retrieve a labeled list of all available statuses for task items.
- *
- * @return array
- *   A list of all available statuses.
- */
-function tmgmt_local_task_item_statuses() {
-  return $statuses = array(
-    TMGMT_LOCAL_TASK_ITEM_STATUS_PENDING => t('Untranslated'),
-    TMGMT_LOCAL_TASK_ITEM_STATUS_COMPLETED => t('Translated'),
-    TMGMT_LOCAL_TASK_ITEM_STATUS_REJECTED => t('Rejected'),
-    TMGMT_LOCAL_TASK_ITEM_STATUS_CLOSED => t('Completed'),
-  );
 }
 
 /**
@@ -464,9 +413,11 @@ function tmgmt_local_tasks_languages($tasks) {
   $query = db_select('tmgmt_local_task', 't');
   $query->condition('tltid', $tasks, 'IN');
   $query->join('tmgmt_job', 'j', 't.tjid = j.tjid');
-  $query->fields('j', array('source_language', 'target_language'));
-  $query->groupBy('target_language');
-  $result = $query->execute();
+  $result = $query
+    ->fields('j', array('source_language', 'target_language'))
+    ->groupBy('target_language')
+    ->groupBy('source_language')
+    ->execute();
   $languages = array();
 
   foreach ($result as $row) {
@@ -479,7 +430,7 @@ function tmgmt_local_tasks_languages($tasks) {
 }
 
 /**
- * Gets translators able to translate all given tasks.
+ * Gets users able to translate all given tasks.
  *
  * @param array $tasks
  *   Array of tasks ids.
@@ -487,18 +438,18 @@ function tmgmt_local_tasks_languages($tasks) {
  * @return array
  *   List of uid => name values.
  */
-function tmgmt_local_get_translators_for_tasks($tasks) {
-  $translators = array();
+function tmgmt_local_get_assignees_for_tasks($tasks) {
+  $assignees = array();
 
   foreach (tmgmt_local_tasks_languages($tasks) as $source_language => $target_languages) {
-    $translators[] = tmgmt_local_translators($source_language, $target_languages);
+    $assignees[] = tmgmt_local_assignees($source_language, $target_languages);
   }
 
-  if (count($translators) > 1) {
-    return call_user_func_array('array_intersect', $translators);
+  if (count($assignees) > 1) {
+    return call_user_func_array('array_intersect', $assignees);
   }
-  elseif (count($translators) == 1) {
-    return array_shift($translators);
+  elseif (count($assignees) == 1) {
+    return array_shift($assignees);
   }
 
   return array();
@@ -524,12 +475,12 @@ function tmgmt_local_tmgmt_job_item_update(JobItemInterface $job_item) {
       // Check if the task can be marked as closed as well.
       $unclosed_tasks = \Drupal::entityQuery('tmgmt_local_task_item')
         ->condition('tltid', $task_item->id())
-        ->condition('status', TMGMT_LOCAL_TASK_ITEM_STATUS_CLOSED, '<>')
+        ->condition('status', LocalTaskItemInterface::STATUS_CLOSED, '<>')
         ->count()
         ->execute();
       if ($unclosed_tasks == 0) {
         $task = $task_item->getTask();
-        $task->setStatus(TMGMT_LOCAL_TASK_STATUS_CLOSED);
+        $task->setStatus(LocalTaskInterface::STATUS_CLOSED);
         $task->save();
       }
     }
@@ -563,11 +514,11 @@ function tmgmt_local_field_access($op, $field, $entity_type, $entity = NULL, $ac
 
     // User can provide transl. services and is dealing with own account.
     if (!empty($entity) && $entity->uid == $account->id()) {
-      return user_access('provide translation services', $entity);
+      return $account->hasPermission('provide translation services');
     }
 
     // Administrators are allowed to deal with others only.
-    if (user_access('administer translation server', $account)) {
+    if ($account->hasPermission('administer translation server')) {
       return TRUE;
     }
 
@@ -578,19 +529,8 @@ function tmgmt_local_field_access($op, $field, $entity_type, $entity = NULL, $ac
 /**
  * Implements hook_field_attach_insert().
  */
-function tmgmt_local_field_attach_insert($entity_type, $entity) {
-  if ($entity_type != 'user' || !array_intersect_key(user_roles(TRUE, 'provide translation services'), $entity->roles)) {
-    return;
-  }
-
-  tmgmt_local_clear_languages_cache();
-}
-
-/**
- * Implements hook_field_attach_update().
- */
-function tmgmt_local_field_attach_update($entity_type, $entity) {
-  if ($entity_type != 'user' || !array_intersect_key(user_roles(TRUE, 'provide translation services'), $entity->roles)) {
+function tmgmt_local_user_presave(UserInterface $user) {
+  if (!$user->hasPermission('provide translation services')) {
     return;
   }
 
@@ -600,8 +540,8 @@ function tmgmt_local_field_attach_update($entity_type, $entity) {
 /**
  * Implements hook_field_attach_delete().
  */
-function tmgmt_local_field_attach_delete($entity_type, $entity) {
-  if ($entity_type != 'user' || !array_intersect_key(user_roles(TRUE, 'provide translation services'), $entity->roles)) {
+function tmgmt_local_field_attach_delete(UserInterface $user) {
+  if (!$user->hasPermission('provide translation services')) {
     return;
   }
   tmgmt_local_clear_languages_cache();
@@ -664,7 +604,7 @@ function tmgmt_local_supported_target_languages($source_language, $uids = array(
 }
 
 /**
- * Gets local translator for given language combination.
+ * Gets local assignees for given language combination.
  *
  * @param string $source_language
  *   (optional) Source language to limit on.
@@ -672,44 +612,43 @@ function tmgmt_local_supported_target_languages($source_language, $uids = array(
  *   (optional) List of target languages to limit to.
  *
  * @return array
- *   Array of uid => name translators or empty array if there are no translator
- *   users.
+ *   Array of uid => name assignees or empty array if there are no assignees.
  */
-function tmgmt_local_translators($source_language = NULL, array $target_languages = array()) {
-  $translators = &drupal_static(__FUNCTION__);
+function tmgmt_local_assignees($source_language = NULL, array $target_languages = array()) {
+  $assignees = &drupal_static(__FUNCTION__);
 
   $key = $source_language . '_' . implode('_', $target_languages);
 
-  if (isset($translators[$key])) {
-    return $translators[$key];
+  if (isset($assignees[$key])) {
+    return $assignees[$key];
   }
 
   // Get all abilities keyed by uids for given source language.
-  $translators_abilities = array();
+  $assignees_abilities = array();
   foreach (tmgmt_local_abilities($source_language) as $row) {
-    $translators_abilities[$row->uid][] = $row->tmgmt_translation_skills_language_to;
+    $assignees_abilities[$row->uid][] = $row->tmgmt_translation_skills_language_to;
   }
 
-  // Filter out translator uids who's abilities are not sufficient for given
+  // Filter out assignees uids who's abilities are not sufficient for given
   // target languages.
-  $translators_uids = array();
-  foreach ($translators_abilities as $uid => $abilities) {
+  $assignees_uids = array();
+  foreach ($assignees_abilities as $uid => $abilities) {
     // In case provided target languages exceed users abilities, exclude.
     if (!empty($target_languages) && count(array_diff($target_languages, $abilities)) > 0) {
       continue;
     }
-    $translators_uids[] = $uid;
+    $assignees_uids[] = $uid;
   }
 
-  // Finally build the translators list.
-  $translators[$key] = array();
-  if (!empty($translators_uids)) {
-    foreach (loadMultiple($translators_uids) as $account) {
-      $translators[$key][$account->id()] = $account->getUsername();
+  // Finally build the assignees list.
+  $assignees[$key] = array();
+  if (!empty($assignees_uids)) {
+    foreach (User::loadMultiple($assignees_uids) as $account) {
+      $assignees[$key][$account->id()] = $account->getUsername();
     }
   }
 
-  return $translators[$key];
+  return $assignees[$key];
 }
 
 /**
@@ -800,9 +739,124 @@ function tmgmt_local_rules_action_info_alter(&$actions) {
 function tmgmt_local_rules_component_access($type, $name) {
   switch ($name) {
     case 'component_rules_tmgmt_local_task_assign_to_me':
-      return user_access('provide translation services');
+      return \Drupal::currentUser()->hasPermission('provide translation services');
+
     case 'component_rules_tmgmt_local_task_assign';
-      return user_access('administer translation tasks');
+      return \Drupal::currentUser()->hasPermission('administer translation tasks');
   }
+
 }
 
+/**
+ * Provides color legends for local task items.
+ *
+ * @return array
+ *   Color legend render array.
+ */
+function tmgmt_color_legend_local_task_item() {
+  $items = [
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ready.svg'),
+      'legend' => t('Untranslated'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/gray-check.svg'),
+      'legend' => t('Translated'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/rejected.svg'),
+      'legend' => t('Rejected'),
+    ],
+    [
+      'icon' => file_create_url('core/misc/icons/73b355/check.svg'),
+      'legend' => t('Completed'),
+    ],
+  ];
+
+  $output = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_local_legend',
+    '#title' => t('Status:'),
+    '#items' => $items,
+    '#prefix' => '<div class="tmgmt-color-legend clearfix">',
+    '#suffix' => '</div>',
+  ];
+
+  return $output;
+}
+
+/**
+ * Provides color legends for local tasks.
+ *
+ * @return array
+ *   Color legend render array.
+ */
+function tmgmt_color_legend_local_task() {
+  $items = [
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/rejected.svg'),
+      'legend' => t('Unassigned'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ready.svg'),
+      'legend' => t('Needs action'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/hourglass.svg'),
+      'legend' => t('In review'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ex-red.svg'),
+      'legend' => t('Rejected'),
+    ],
+    [
+      'icon' => file_create_url('core/misc/icons/73b355/check.svg'),
+      'legend' => t('Closed'),
+    ],
+  ];
+
+  $output = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_local_legend',
+    '#title' => t('Status:'),
+    '#items' => $items,
+    '#prefix' => '<div class="tmgmt-color-legend clearfix">',
+    '#suffix' => '</div>',
+  ];
+
+  return $output;
+}
+
+/**
+ * Provides color legends for task item review form.
+ *
+ * @return array
+ *   Color legend render array.
+ */
+function tmgmt_color_local_review_legend() {
+  $items = [
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ready.svg'),
+      'legend' => t('Untranslated'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/gray-check.svg'),
+      'legend' => t('Translated'),
+    ],
+    [
+      'icon' => file_create_url('core/misc/icons/73b355/check.svg'),
+      'legend' => t('Accepted'),
+    ],
+  ];
+
+  $output = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_local_legend',
+    '#title' => t('Status:'),
+    '#items' => $items,
+    '#prefix' => '<div class="tmgmt-color-legend clearfix">',
+    '#suffix' => '</div>',
+  ];
+
+  return $output;
+}

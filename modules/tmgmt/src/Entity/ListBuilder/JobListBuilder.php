@@ -9,6 +9,7 @@ namespace Drupal\tmgmt\Entity\ListBuilder;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityListBuilder;
 use Drupal\Core\Url;
+use Drupal\tmgmt\Entity\Job;
 
 /**
  * Provides the views data for the message entity type.
@@ -35,7 +36,7 @@ class JobListBuilder extends EntityListBuilder {
       );
     }
     if ($entity->isAbortable() && $entity->access('submit')) {
-      $operations['cancel'] = array(
+      $operations['abort'] = array(
         'url' => $entity->urlInfo('abort-form')->setOption('query', array('destination' => Url::fromRoute('<current>')->getInternalPath())),
         'title' => t('Abort'),
         'weight' => 10,

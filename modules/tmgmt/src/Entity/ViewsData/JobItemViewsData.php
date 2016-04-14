@@ -44,11 +44,24 @@ class JobItemViewsData extends EntityViewsData {
       ),
     );
 
-    $data['tmgmt_job_item']['state']['field']['id'] = 'machine_name';
-    $data['tmgmt_job_item']['state']['field']['click sortable'] = TRUE;
-    $data['tmgmt_job_item']['state']['field']['float'] = FALSE;
-    $data['tmgmt_job_item']['state']['filter']['id'] = 'in_operator';
+    $data['tmgmt_job_item']['state'] = array(
+      'title' => 'State',
+      'help' => 'Displays the state of the job item.',
+      'field' => array(
+        'id' => 'tmgmt_job_item_state',
+      ),
+      'filter' => array(
+        'id' => 'numeric',
+      ),
+    );
 
+    $data['tmgmt_job_item']['footer'] = array(
+      'title' => t('Job Item Overview legend'),
+      'help' => t('Add job item state legends'),
+      'area' => array(
+        'id' => 'tmgmt_job_item_legend',
+        ),
+      );
     return $data;
   }
 }

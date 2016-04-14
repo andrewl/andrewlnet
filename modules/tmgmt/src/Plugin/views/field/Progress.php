@@ -7,9 +7,8 @@
 
 namespace Drupal\tmgmt\Plugin\views\field;
 
-use Drupal\Component\Annotation\PluginID;
-use Drupal\tmgmt\Entity\Job;
-use Drupal\views\Plugin\views\field\FieldPluginBase;
+use Drupal\tmgmt\JobInterface;
+use Drupal\tmgmt\JobItemInterface;
 use Drupal\views\ResultRow;
 
 /**
@@ -17,100 +16,78 @@ use Drupal\views\ResultRow;
  *
  * @ViewsField("tmgmt_progress")
  */
-class Progress extends FieldPluginBase {
-
-  /**
-   * Prefetch statistics for all jobs.
-   */
-  function preRender(&$values) {
-    parent::preRender($values);
-
-    // In case of jobs, pre-fetch the statistics in a single query and add them
-    // to the static cache.
-    if ($this->getEntityType() == 'tmgmt_job') {
-      $tjids = array();
-      foreach ($values as $value) {
-        // Do not load statistics for aborted jobs.
-        if ($value->_entity->tmgmt_job_state == Job::STATE_ABORTED) {
-          continue;
-        }
-        $tjids[] = $value->tjid;
-      }
-      tmgmt_job_statistics_load($tjids);
-    }
-  }
+class Progress extends StatisticsBase {
 
   /**
    * {@inheritdoc}
    */
-  function render(ResultRow $values) {
+  public function render(ResultRow $values) {
     $entity = $values->_entity;
-    // If job has been aborted the status info is not applicable.
-    if ($entity->isAborted()) {
-      return t('N/A');
+    if ($entity->getEntityTypeId() == 'tmgmt_job') {
+      switch ($entity->getState()) {
+        case JobInterface::STATE_UNPROCESSED:
+          return t('Unprocessed');
+          break;
+
+        case JobInterface::STATE_REJECTED:
+          return t('Rejected');
+          break;
+
+        case JobInterface::STATE_ABORTED:
+          return t('Aborted');
+          break;
+
+        case JobInterface::STATE_FINISHED:
+          return t('Finished');
+          break;
+      }
+    } elseif($entity->getEntityTypeId() == 'tmgmt_job_item') {
+      switch ($entity->getState()) {
+        case JobItemInterface::STATE_INACTIVE:
+          return t('Inactive');
+          break;
+
+        case JobItemInterface::STATE_ACCEPTED:
+          return t('Accepted');
+          break;
+
+        case JobItemInterface::STATE_ABORTED:
+          return t('Aborted');
+          break;
+      }
+    }
+    // If job is continuous we don't show anything.
+    if ($entity->getEntityTypeId() == 'tmgmt_job' && $entity->isContinuous()) {
+      return;
     }
     $counts = array(
-      '@accepted' => $entity->getCountAccepted(),
-      '@reviewed' => $entity->getCountReviewed(),
-      '@translated' => $entity->getCountTranslated(),
       '@pending' => $entity->getCountPending(),
+      '@translated' => $entity->getCountTranslated(),
+      '@reviewed' => $entity->getCountReviewed(),
+      '@accepted' => $entity->getCountAccepted(),
     );
-    $id = $entity->id();
 
-    if (\Drupal::moduleHandler()->moduleExists('google_chart_tools')) {
-      draw_chart($this->build_progressbar_settings($id, $counts));
-      return '<div id="progress' . $id . '"></div>';
+    $title = t('Pending: @pending, translated: @translated, reviewed: @reviewed, accepted: @accepted.', $counts);
+
+    $one_hundred_percent = array_sum($counts);
+    if ($one_hundred_percent == 0) {
+      return [];
     }
-    $title = t('Accepted: @accepted, reviewed: @reviewed, translated: @translated, pending: @pending.', $counts);
-    $complete_title = t('<span title="@title">@values</span>', ['@title' => $title, '@values' => implode('/', $counts)]);
-    return $complete_title;
-  }
 
-  /**
-   * Creates a settings array for the google chart tools.
-   *
-   * The settings are preset with values to display a progress bar for either
-   * a job or job item.
-   *
-   * @param $id
-   *   The id of the chart.
-   * @param $counts
-   *   Array with the counts for accepted, translated and pending.
-   * @param $prefix
-   *   Prefix to id.
-   * @return
-   *   Settings array.
-   */
-  function build_progressbar_settings($id, $counts, $prefix = 'progress') {
-    $settings['chart'][$prefix . $id] = array(
-      'header' => array(t('Accepted'), t('Reviewed'), t('Translated'), t('Pending')),
-      'rows' => array(
-        array($counts['@accepted'], $counts['@reviewed'], $counts['@translated'], $counts['@pending']),
-      ),
-      'columns' => array(''),
-      'chartType' => 'PieChart',
-      'containerId' => $prefix . $id,
-      'options' => array(
-        'backgroundColor' => 'transparent',
-        'colors' => array('#00b600', '#60ff60', '#ffff00', '#6060ff'),
-        'forceIFrame' => FALSE,
-        'chartArea' => array(
-          'left' => 0,
-          'top' => 0,
-          'width' => '50%',
-          'height' => '100%',
-        ),
-        'fontSize' => 9,
-        'title' => t('Progress'),
-        'titlePosition' => 'none',
-        'width' => 60,
-        'height' => 50,
-        'isStacked' => TRUE,
-        'legend' => array('position' => 'none'),
-        'pieSliceText' => 'none',
-      )
+    $output = array(
+      '#theme' => 'tmgmt_progress_bar',
+      '#attached' => array('library' => 'tmgmt/admin'),
+      '#title' => $title,
+      '#count_pending' => $counts['@pending'],
+      '#count_translated' => $counts['@translated'],
+      '#count_reviewed' => $counts['@reviewed'],
+      '#count_accepted' => $counts['@accepted'],
+      '#width_pending' => $counts['@pending'] / $one_hundred_percent * 100,
+      '#width_translated' => $counts['@translated'] / $one_hundred_percent * 100,
+      '#width_reviewed' => $counts['@reviewed'] / $one_hundred_percent * 100,
+      '#width_accepted' => $counts['@accepted'] / $one_hundred_percent * 100,
     );
-    return $settings;
+    return $output;
   }
 
 }

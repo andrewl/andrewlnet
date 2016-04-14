@@ -76,9 +76,7 @@ class TMGMTCartTest extends TMGMTTestBase {
     $this->drupalPostForm('admin/tmgmt/cart', array(
       'enforced_source_language' => TRUE,
       'source_language' => 'en',
-      'items[' . $job_item_cs->id() . ']' => TRUE,
-      'items[' . $job_item_sk->id() . ']' => TRUE,
-      'target_language[]' => array('es')
+      'target_language[]' => array('es'),
     ), t('Request translation'));
 
     $this->assertText(t('One job needs to be checked out.'));
@@ -88,7 +86,7 @@ class TMGMTCartTest extends TMGMTTestBase {
     $args = explode('/', $this->getUrl());
     $tjid = array_pop($args);
 
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
     // We cannot test for the item data as items without a job are not able to
     // get the data in case the source language is overridden. Therefore only
     // testing for item_id and item_type values.
@@ -99,6 +97,25 @@ class TMGMTCartTest extends TMGMTTestBase {
     $this->drupalGet('admin/tmgmt/cart');
     $this->assertText($node_cs->getTitle());
     $this->assertNoText($node_sk->getTitle());
+
+    // Test that duplicate submission of an item is not allowed.
+    $this->drupalPostForm('admin/tmgmt/cart', array(
+      'target_language[]' => array('es'),
+    ), t('Request translation'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
+    $this->assertText(t('Test translation created.'));
+
+    $job_item_cs = tmgmt_job_item_create('content', 'node', $node_cs->id());
+    $job_item_cs->save();
+    $this->drupalGet('tmgmt-add-to-cart/' . $job_item_cs->id());
+    $job_items_data[$job_item_cs->getItemId()] = $job_item_cs->getItemType();
+
+    $this->drupalPostForm('admin/tmgmt/cart', array(
+      'target_language[]' => array('es'),
+    ), t('Request translation'));
+    $this->assertText(t('1 item conflict with pending item and will be dropped on submission.'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
+    $this->assertText(t('All job items are conflicting, the job can not be submitted.'));
   }
 
 }

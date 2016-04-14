@@ -1,8 +1,7 @@
 <?php
-
-/*
+/**
  * @file
- * Contains Drupal\tmgmt\Plugin\Core\Entity\Job.
+ * Contains \Drupal\tmgmt\Entity\Job.
  */
 
 namespace Drupal\tmgmt\Entity;
@@ -36,6 +35,7 @@ use Drupal\user\UserInterface;
  *       "abort" = "Drupal\tmgmt\Form\JobAbortForm",
  *       "delete" = "Drupal\Core\Entity\ContentEntityDeleteForm",
  *       "resubmit" = "Drupal\tmgmt\Form\JobResubmitForm",
+ *       "continuous_add" = "Drupal\tmgmt\Form\ContinuousJobForm",
  *     },
  *     "list_builder" = "Drupal\tmgmt\Entity\ListBuilder\JobListBuilder",
  *     "view_builder" = "Drupal\Core\Entity\EntityViewBuilder",
@@ -52,6 +52,7 @@ use Drupal\user\UserInterface;
  *     "abort-form" = "/admin/tmgmt/jobs/{tmgmt_job}/abort",
  *     "delete-form" = "/admin/tmgmt/jobs/{tmgmt_job}/delete",
  *     "resubmit-form" = "/admin/tmgmt/jobs/{tmgmt_job}/resubmit",
+ *     "continuous-add-form" = "/admin/tmgmt/continuous_jobs/continuous_add",
  *   }
  * )
  *
@@ -106,15 +107,15 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
       ->setDefaultValue(0);
 
     $fields['translator'] = BaseFieldDefinition::create('entity_reference')
-      ->setLabel(t('Translator'))
-      ->setDescription(t('The selected translator'))
+      ->setLabel(t('Provider'))
+      ->setDescription(t('The selected provider'))
       ->setSettings(array(
         'target_type' => 'tmgmt_translator',
       ));
 
     $fields['settings'] = BaseFieldDefinition::create('map')
       ->setLabel(t('Settings'))
-      ->setDescription(t('Translator specific configuration and context information for this job.'))
+      ->setDescription(t('Provider specific configuration and context information for this job.'))
       ->setDefaultValue(array());
 
     $fields['reference'] = BaseFieldDefinition::create('string')
@@ -137,6 +138,18 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
     $fields['changed'] = BaseFieldDefinition::create('changed')
       ->setLabel(t('Changed'))
       ->setDescription(t('The time that the job was last edited.'));
+
+    $fields['job_type'] = BaseFieldDefinition::create('list_string')
+      ->setLabel(t('Job type'))
+      ->setDescription(t('Type of job entity, can be Normal or Continuous.'))
+      ->setSetting('allowed_values', [static::TYPE_NORMAL, static::TYPE_CONTINUOUS])
+      ->setDefaultValue(static::TYPE_NORMAL);
+
+    $fields['continuous_settings'] = BaseFieldDefinition::create('map')
+      ->setLabel(t('Continuous settings'))
+      ->setDescription(t('Continuous sources configuration.'))
+      ->setDefaultValue(array());
+
     return $fields;
   }
 
@@ -192,6 +205,20 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
   /**
    * {@inheritdoc}
    */
+  public function getJobType() {
+    return $this->get('job_type')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getContinuousSettings() {
+    return $this->get('continuous_settings')[0] ? $this->get('continuous_settings')[0]->getValue() : array();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function cloneAsUnprocessed() {
     $clone = $this->createDuplicate();
     $clone->uid->value = 0;
@@ -205,7 +232,8 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
   /**
    * {@inheritdoc}
    */
-  public static function postDelete(EntityStorageInterface $storage_controller, array $entities) {
+  public static function postDelete(EntityStorageInterface $storage, array $entities) {
+    parent::postDelete($storage, $entities);
     // Since we are deleting one or multiple jobs here we also need to delete
     // the attached job items and messages.
     $tjiids = \Drupal::entityQuery('tmgmt_job_item')
@@ -344,6 +372,24 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
   /**
    * {@inheritdoc}
    */
+  public function getMostRecentItem($plugin, $item_type, $item_id) {
+    $query = \Drupal::entityQuery('tmgmt_job_item')
+      ->condition('tjid', $this->id())
+      ->condition('plugin', $plugin)
+      ->condition('item_type', $item_type)
+      ->condition('item_id', $item_id)
+      ->sort('tjiid', 'DESC')
+      ->range(0, 1);
+    $result = $query->execute();
+    if (!empty($result)) {
+      return JobItem::load(reset($result));
+    }
+    return NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function getMessages($conditions = array()) {
     $query = \Drupal::entityQuery('tmgmt_message')
       ->condition('tjid', $this->id());
@@ -415,12 +461,25 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
   /**
    * {@inheritdoc}
    */
+  public function getTranslatorLabel() {
+    if ($this->hasTranslator()) {
+      return $this->getTranslator()->label();
+    }
+    if ($this->getTranslatorId() == NULL) {
+      return t('(Undefined)');
+    }
+    return t('(Missing)');
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function getTranslator() {
     if ($this->hasTranslator()) {
       return $this->translator->entity;
     }
     else if (!$this->translator->entity) {
-      throw new TMGMTException('The job has no translator assigned.');
+      throw new TMGMTException('The job has no provider assigned.');
     }
     else if (!$this->translator->entity->hasPlugin()) {
       throw new TMGMTException('The translator assigned to this job is missing the plugin.');
@@ -516,6 +575,20 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
   /**
    * {@inheritdoc}
    */
+  public function isContinuousActive() {
+    return $this->isState(static::STATE_CONTINUOUS);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function isContinuousInactive() {
+    return $this->isState(static::STATE_CONTINUOUS_INACTIVE);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function canRequestTranslation() {
     if ($translator = $this->getTranslator()) {
       return $translator->checkTranslatable($this);
@@ -528,14 +601,24 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
    */
   public function isAbortable() {
     // Only non-submitted translation jobs can be aborted.
-    return $this->isActive();
+    if ($this->isContinuous()) {
+      return FALSE;
+    }
+    else {
+      return $this->isActive();
+    }
   }
 
   /**
    * {@inheritdoc}
    */
   public function isSubmittable() {
-    return $this->isUnprocessed() || $this->isRejected();
+    if ($this->isContinuous()) {
+      return FALSE;
+    }
+    else {
+      return $this->isUnprocessed() || $this->isRejected();
+    }
   }
 
   /**
@@ -543,6 +626,13 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
    */
   public function isDeletable() {
     return !$this->isActive();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function isContinuous() {
+    return $this->getJobType() == static::TYPE_CONTINUOUS;
   }
 
   /**
@@ -596,10 +686,32 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
     if (!$this->canRequestTranslation()->getSuccess()) {
       return FALSE;
     }
+    if (!$this->isContinuous()) {
+      $this->setOwnerId(\Drupal::currentUser()->id());
+    }
     // We don't know if the translator plugin already processed our
     // translation request after this point. That means that the plugin has to
     // set the 'submitted', 'needs review', etc. states on its own.
     $this->getTranslatorPlugin()->requestTranslation($this);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function preSave(EntityStorageInterface $storage) {
+    parent::preSave($storage);
+    if ($this->isContinuous() && !$this->isContinuousInactive() && !$this->isAborted()) {
+      $this->state = Job::STATE_CONTINUOUS;
+    }
+    // Activate job item if the previous job state was not active.
+    if ($this->isActive() && !$this->original->isActive()) {
+      foreach ($this->getItems() as $item) {
+        // The job was submitted, activate any inactive job item.
+        if ($item->isInactive()) {
+          $item->setState(JobItemInterface::STATE_ACTIVE);
+        }
+      }
+    }
   }
 
   /**
@@ -688,20 +800,27 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
   /**
    * {@inheritdoc}
    */
-  public function addTranslatedData(array $data, $key = NULL) {
+  public function getTagsCount() {
+    return tmgmt_job_statistic($this, 'tags_count');
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function addTranslatedData(array $data, $key = NULL, $status = NULL) {
     $key = \Drupal::service('tmgmt.data')->ensureArrayKey($key);
     $items = $this->getItems();
     // If there is a key, get the specific item and forward the call.
     if (!empty($key)) {
       $item_id = array_shift($key);
       if (isset($items[$item_id])) {
-        $items[$item_id]->addTranslatedData($data, $key);
+        $items[$item_id]->addTranslatedData($data, $key, $status);
       }
     }
     else {
       foreach ($data as $key => $value) {
         if (isset($items[$key])) {
-          $items[$key]->addTranslatedData($value);
+          $items[$key]->addTranslatedData($value, [], $status);
         }
       }
     }
@@ -830,7 +949,36 @@ class Job extends ContentEntityBase implements EntityOwnerInterface, JobInterfac
       static::STATE_REJECTED => t('Rejected'),
       static::STATE_ABORTED => t('Aborted'),
       static::STATE_FINISHED => t('Finished'),
+      static::STATE_CONTINUOUS => t('Continuous'),
+      static::STATE_CONTINUOUS_INACTIVE => t('Continuous Inactive'),
     );
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getConflictingItemIds() {
+    $conflicting_item_ids = array();
+    foreach ($this->getItems() as $item) {
+      // Count existing job items that are have the same languages, same source,
+      // are active or in review and are not the job item that we are checking.
+      $existing_items_count = \Drupal::entityQuery('tmgmt_job_item')
+        ->condition('state', [JobItemInterface::STATE_ACTIVE, JobItemInterface::STATE_REVIEW], 'IN')
+        ->condition('plugin', $item->getPlugin())
+        ->condition('item_type', $item->getItemType())
+        ->condition('item_id', $item->getItemId())
+        ->condition('tjiid', $item->id(), '<>')
+        ->condition('tjid.entity.source_language', $this->getSourceLangcode())
+        ->condition('tjid.entity.target_language', $this->getTargetLangcode())
+        ->count()
+        ->execute();
+
+      // If there are any, this is a conflicting job item.
+      if ($existing_items_count) {
+        $conflicting_item_ids[] = $item->id();
+      }
+    }
+    return $conflicting_item_ids;
   }
 
 }

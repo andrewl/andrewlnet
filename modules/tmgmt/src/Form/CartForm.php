@@ -8,7 +8,6 @@
 namespace Drupal\tmgmt\Form;
 
 use Drupal\Core\Form\FormBase;
-use Drupal\Core\Url;
 use Drupal\tmgmt\Entity\JobItem;
 use Drupal\Core\Form\FormStateInterface;
 
@@ -30,8 +29,10 @@ class Cartform extends FormBase {
   public function buildForm(array $form, FormStateInterface $form_state, $plugin = NULL, $item_type = NULL) {
     $languages = tmgmt_available_languages();
     $options = array();
+    $selected = [];
     foreach (tmgmt_cart_get()->getJobItemsFromCart() as $item) {
       $url = $item->getSourceUrl();
+      $selected[$item->id()] = TRUE;
       $options[$item->id()] = array(
         $item->getSourceType(),
         $url ? \Drupal::l($item->label(), $url) : $item->label(),
@@ -44,6 +45,7 @@ class Cartform extends FormBase {
       '#header' => array(t('Type'), t('Content'), t('Language')),
       '#empty' => t('There are no items in your cart.'),
       '#options' => $options,
+      '#default_value' => $selected,
     );
 
     $form['enforced_source_language'] = array(

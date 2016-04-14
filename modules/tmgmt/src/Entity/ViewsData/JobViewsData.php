@@ -36,6 +36,14 @@ class JobViewsData extends EntityViewsData {
       ),
       'sort' => array(),
     );
+    $data['tmgmt_job']['tags_count'] = array(
+      'title' => 'Tags count',
+      'help' => 'Displays the HTML tags count of a job.',
+      'real field' => 'tjid',
+      'field' => array(
+        'id' => 'tmgmt_tagscount',
+      ),
+    );
     $data['tmgmt_job']['label'] = array(
       'title' => 'Label',
       'help' => 'Displays a label of the job item.',
@@ -50,6 +58,34 @@ class JobViewsData extends EntityViewsData {
     $data['tmgmt_job']['translator']['filter']['id'] = 'in_operator';
     $data['tmgmt_job']['translator']['filter']['options callback'] = 'tmgmt_translator_labels';
 
+    $data['tmgmt_job']['job_type'] = array(
+      'title' => 'Job Type (Custom)',
+      'help' => 'Displays the job type filter.',
+      'field' => array(
+        'id' => 'tmgmt_job_type',
+      ),
+      'filter' => array(
+        'id' => 'tmgmt_job_type_filter',
+      ),
+    );
+
+    $data['tmgmt_job']['state'] = array(
+      'title' => 'States',
+      'help' => 'Displays the state of the job.',
+      'field' => array(
+        'id' => 'tmgmt_job_state',
+      ),
+      'filter' => array(
+        'id' => 'tmgmt_job_state_filter',
+      ),
+    );
+    $data['tmgmt_job']['footer'] = array(
+      'title' => t('Job Overview legend'),
+      'help' => t('Add job state legends'),
+      'area' => array(
+        'id' => 'tmgmt_job_legend',
+      ),
+    );
     return $data;
   }
 

@@ -7,9 +7,8 @@
 
 namespace Drupal\tmgmt\Form;
 
-use Drupal\Component\Utility\Html;
-use Drupal\Component\Utility\Xss;
 use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\InvokeCommand;
 use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Language\LanguageInterface;
@@ -17,9 +16,9 @@ use Drupal\Core\Url;
 use Drupal\tmgmt\Entity\Job;
 use Drupal\tmgmt\Entity\JobItem;
 use Drupal\tmgmt\JobInterface;
-use Drupal\tmgmt\Translator\AvailableResult;
-use Drupal\tmgmt\Translator\TranslatableResult;
+use Drupal\user\Entity\User;
 use Drupal\views\Views;
+use Drupal\tmgmt\ContinuousSourceInterface;
 
 /**
  * Form controller for the job edit forms.
@@ -88,7 +87,7 @@ class JobForm extends TmgmtFormBase {
       $form_state->setValue('label', $job->label());
     }
 
-    $form['label']['widget'][0]['value']['#description'] = t('You can provide a label for this job in order to identify it easily later on. Or leave it empty to use default one.');
+    $form['label']['widget'][0]['value']['#description'] = t('You can provide a label for this job in order to identify it easily later on. Or leave it empty to use the default one.');
     $form['label']['#group'] = 'info';
     $form['label']['#prefix'] = '<div id="tmgmt-ui-label">';
     $form['label']['#suffix'] = '</div>';
@@ -146,28 +145,86 @@ class JobForm extends TmgmtFormBase {
     }
 
     // Display selected translator for already submitted jobs.
-    if (!$job->isSubmittable()) {
-      $translators = tmgmt_translator_labels();
+    if (!$job->isSubmittable() && !$job->isContinuous()) {
       $form['info']['translator'] = array(
         '#type' => 'item',
-        '#title' => t('Translator'),
-        '#markup' => isset($translators[$job->getTranslatorId()]) ? Html::escape($translators[$job->getTranslatorId()]) : t('Missing translator'),
+        '#title' => t('Provider'),
+        '#markup' => $job->getTranslatorLabel(),
         '#prefix' => '<div class="tmgmt-ui-translator tmgmt-ui-info-item">',
         '#suffix' => '</div>',
         '#value' => $job->getTranslatorId(),
       );
     }
 
-    $form['info']['word_count'] = array(
-      '#type' => 'item',
-      '#title' => t('Total word count'),
-      '#markup' => number_format($job->getWordCount()),
-      '#prefix' => '<div class="tmgmt-ui-word-count tmgmt-ui-info-item">',
-      '#suffix' => '</div>',
-    );
+    if(!$job->isContinuous()) {
+      $form['info']['word_count'] = array(
+        '#type' => 'item',
+        '#title' => t('Total words'),
+        '#markup' => number_format($job->getWordCount()),
+        '#prefix' => '<div class="tmgmt-ui-word-count tmgmt-ui-info-item">',
+        '#suffix' => '</div>',
+      );
+
+      $form['info']['tags_count'] = array(
+        '#type' => 'item',
+        '#title' => t('Total HTML tags'),
+        '#markup' => number_format($job->getTagsCount()),
+        '#prefix' => '<div class="tmgmt-ui-tags-count tmgmt-ui-info-item">',
+        '#suffix' => '</div>',
+      );
+    }
+    else {
+      $roles1 = user_roles(TRUE, 'administer tmgmt');
+      $roles2 = user_roles(TRUE, 'create translation jobs');
+      $roles3 = user_roles(TRUE, 'submit translation jobs');
+      $roles4 = user_roles(TRUE, 'accept translation jobs');
+      $duplicates = array_merge($roles1, $roles2, $roles3, $roles4);
+      $roles = array_unique($duplicates, SORT_REGULAR);
+      if (array_key_exists('authenticated', $roles)) {
+        $filter = [];
+      }
+      else {
+        $ids = array_keys($roles);
+        $roles = array_combine($ids, $ids);
+        $filter = [
+          'type' => 'role',
+          'role' => $roles,
+        ];
+      }
+      $form['info']['uid'] = array(
+        '#title' => t('Owner'),
+        '#type' => 'entity_autocomplete',
+        '#target_type' => 'user',
+        '#selection_settings' => [
+          'include_anonymous' => FALSE,
+          'filter' => $filter,
+          'field' => 'uid',
+        ],
+        '#process_default_value' => TRUE,
+        '#default_value' => $job->getOwnerId() == 0 ? User::load(\Drupal::currentUser()->id()) : $job->getOwner(),
+        '#required' => TRUE,
+        '#prefix' => '<div id="tmgmt-ui-owner" class="tmgmt-ui-owner tmgmt-ui-info-item">',
+        '#suffix' => '</div>',
+      );
+    }
+
+    if(!$job->isContinuous()) {
+      // Checkout whether given source already has items in translation.
+      $num_of_existing_items = count($job->getConflictingItemIds());
+      $form['message'] = array(
+        '#type' => 'html_tag',
+        '#tag' => 'div',
+        '#value' => \Drupal::translation()->formatPlural($num_of_existing_items, '1 item conflict with pending item and will be dropped on submission.', '@count items conflict with pending items and will be dropped on submission.'),
+        '#prefix' => '<div class="messages existing-items messages--warning hidden">',
+        '#suffix' => '</div>',
+      );
+      if ($num_of_existing_items) {
+        $form['message']['#prefix'] = '<div class="messages existing-items messages--warning">';
+      }
+    }
 
     // Display created time only for jobs that are not new anymore.
-    if (!$job->isUnprocessed()) {
+    if (!$job->isUnprocessed() && !$job->isContinuousActive()) {
       $form['info']['created'] = array(
         '#type' => 'item',
         '#title' => t('Created'),
@@ -177,117 +234,145 @@ class JobForm extends TmgmtFormBase {
         '#value' => $job->getCreatedTime(),
       );
     }
-
-    if ($view = Views::getView('tmgmt_job_items')) {
-      $form['job_items_wrapper'] = array(
-        '#type' => 'details',
-        '#title' => t('Job items'),
-        '#open' => FALSE,
-        '#weight' => 10,
-        '#prefix' => '<div class="tmgmt-ui-job-checkout-details">',
-        '#suffix' => '</div>',
-      );
-
-      // Translation jobs.
-      $output = $view->preview($job->isSubmittable() ? 'checkout' : 'submitted', array($job->id()));
-      $form['job_items_wrapper']['items'] = array(
-        '#type' => 'markup',
-        '#title' => $view->storage->label(),
-        '#prefix' => '<div class="' . 'tmgmt-ui-job-items ' . ($job->isSubmittable() ? 'tmgmt-ui-job-submit' : 'tmgmt-ui-job-manage') . '">',
-        'view' => ['#markup' => $this->renderer->render($output)],
-        '#attributes' => array('class' => array('tmgmt-ui-job-items', $job->isSubmittable() ? 'tmgmt-ui-job-submit' : 'tmgmt-ui-job-manage')),
-        '#suffix' => '</div>',
-      );
+    else {
+      // Indicate the state to the forms css classes.
+      $form['#attributes']['class'][] = 'state-unprocessed';
     }
+    if(!$job->isContinuous()) {
+      if ($view = Views::getView('tmgmt_job_items')) {
+        $form['job_items_wrapper'] = array(
+          '#type' => 'details',
+          '#title' => t('Job items'),
+          '#open' => in_array($job->getState(), array(Job::STATE_ACTIVE, Job::STATE_UNPROCESSED)),
+          '#weight' => 10,
+          '#prefix' => '<div id="tmgmt-ui-job-checkout-details">',
+          '#suffix' => '</div>',
+        );
+        $form['footer'] = tmgmt_color_job_item_legend();
+        $form['footer']['#weight'] = 100;
+        // Translation jobs.
+        $output = $view->preview($job->isSubmittable() ? 'checkout' : 'submitted', array($job->id()));
+        $form['job_items_wrapper']['items'] = array(
+          '#type' => 'markup',
+          '#title' => $view->storage->label(),
+          '#prefix' => '<div class="' . 'tmgmt-ui-job-items ' . ($job->isSubmittable() ? 'tmgmt-ui-job-submit' : 'tmgmt-ui-job-manage') . '">',
+          'view' => ['#markup' => $this->renderer->render($output)],
+          '#attributes' => array('class' => array('tmgmt-ui-job-items', $job->isSubmittable() ? 'tmgmt-ui-job-submit' : 'tmgmt-ui-job-manage')),
+          '#suffix' => '</div>',
+        );
+      }
 
-    // A Wrapper for a button and a table with all suggestions.
-    $form['job_items_wrapper']['suggestions'] = array(
-      '#type' => 'container',
-      '#access' => $job->isSubmittable(),
-    );
+      // A Wrapper for a button and a table with all suggestions.
+      $form['job_items_wrapper']['suggestions'] = array(
+        '#type' => 'container',
+        '#access' => $job->isSubmittable(),
+      );
 
-    // Button to load all translation suggestions with AJAX.
-    $form['job_items_wrapper']['suggestions']['load'] = array(
-      '#type' => 'submit',
-      '#value' => t('Load suggestions'),
-      '#submit' => array('::loadSuggestionsSubmit'),
-      '#limit_validation_errors' => array(),
-      '#attributes' => array(
-        'class' => array('tmgmt-ui-job-suggestions-load'),
-      ),
-      '#ajax' => array(
-        'callback' => '::ajaxLoadSuggestions',
-        'wrapper' => 'tmgmt-ui-job-items-suggestions',
-        'method' => 'replace',
-        'effect' => 'fade',
-      ),
-    );
-
-    $form['job_items_wrapper']['suggestions']['container'] = array(
-      '#type' => 'container',
-      '#prefix' => '<div id="tmgmt-ui-job-items-suggestions">',
-      '#suffix' => '</div>',
-    );
-
-    // Create the suggestions table.
-    $suggestions_table = array(
-      '#type' => 'tableselect',
-      '#header' => array(),
-      '#options' => array(),
-      '#multiple' => TRUE,
-    );
-
-    // If this is an AJAX-Request, load all related nodes and fill the table.
-    if ($form_state->isRebuilding() && $form_state->get('rebuild_suggestions')) {
-      $this->buildSuggestions($suggestions_table, $form_state);
-
-      // A save button on bottom of the table is needed.
-      $suggestions_table = array(
-        'suggestions_table' => $suggestions_table,
-        'suggestions_add' => array(
-          '#type' => 'submit',
-          '#value' => t('Add suggestions'),
-          '#submit' => array('::addSuggestionsSubmit'),
-          '#limit_validation_errors' => array(array('suggestions_table')),
-          '#attributes' => array(
-            'class' => array('tmgmt-ui-job-suggestions-add'),
-          ),
-          '#access' => !empty($suggestions_table['#options']),
+      // Button to load all translation suggestions with AJAX.
+      $form['job_items_wrapper']['suggestions']['load'] = array(
+        '#type' => 'submit',
+        '#value' => t('Load suggestions'),
+        '#submit' => array('::loadSuggestionsSubmit'),
+        '#limit_validation_errors' => array(),
+        '#attributes' => array(
+          'class' => array('tmgmt-ui-job-suggestions-load'),
+        ),
+        '#ajax' => array(
+          'callback' => '::ajaxLoadSuggestions',
+          'wrapper' => 'tmgmt-ui-job-items-suggestions',
+          'method' => 'replace',
+          'effect' => 'fade',
         ),
       );
-      $form['job_items_wrapper']['suggestions']['container']['suggestions_list'] = array(
-        '#type' => 'details',
-        '#title' => t('Suggestions'),
+
+      $form['job_items_wrapper']['suggestions']['container'] = array(
+        '#type' => 'container',
         '#prefix' => '<div id="tmgmt-ui-job-items-suggestions">',
         '#suffix' => '</div>',
-        '#open' => FALSE,
-      ) + $suggestions_table;
+      );
+
+      // Create the suggestions table.
+      $suggestions_table = array(
+        '#type' => 'tableselect',
+        '#header' => array(),
+        '#options' => array(),
+        '#multiple' => TRUE,
+      );
+
+      // If this is an AJAX-Request, load all related nodes and fill the table.
+      if ($form_state->isRebuilding() && $form_state->get('rebuild_suggestions')) {
+        $this->buildSuggestions($suggestions_table, $form_state);
+
+        // A save button on bottom of the table is needed.
+        $suggestions_table = array(
+          'suggestions_table' => $suggestions_table,
+          'suggestions_add' => array(
+            '#type' => 'submit',
+            '#value' => t('Add suggestions'),
+            '#submit' => array('::addSuggestionsSubmit'),
+            '#limit_validation_errors' => array(array('suggestions_table')),
+            '#attributes' => array(
+              'class' => array('tmgmt-ui-job-suggestions-add'),
+            ),
+            '#access' => !empty($suggestions_table['#options']),
+          ),
+        );
+        $form['job_items_wrapper']['suggestions']['container']['suggestions_list'] = array(
+            '#type' => 'details',
+            '#title' => t('Suggestions'),
+            '#prefix' => '<div id="tmgmt-ui-job-items-suggestions">',
+            '#suffix' => '</div>',
+            '#open' => TRUE,
+          ) + $suggestions_table;
+      }
+    }
+
+    if ($job->isContinuous()) {
+      $form['continuous_settings'] = array(
+        '#type' => 'details',
+        '#title' => $this->t('Continuous settings'),
+        '#description' => $this->t('Configure the sources that should be enabled for this continuous job.'),
+        '#open' => TRUE,
+        '#weight' => 10,
+        '#tree' => TRUE,
+      );
+
+      $source_manager = \Drupal::service('plugin.manager.tmgmt.source');
+      $source_plugins = $source_manager->getDefinitions();
+      foreach ($source_plugins as $type => $definition) {
+        $plugin_type = $source_manager->createInstance($type);
+        if ($plugin_type instanceof ContinuousSourceInterface) {
+          $form['continuous_settings'][$type] = $plugin_type->continuousSettingsForm($form, $form_state, $job);
+        }
+      }
     }
 
     // Display the checkout settings form if the job can be checked out.
-    if ($job->isSubmittable()) {
+    if ($job->isSubmittable() || $job->isContinuous()) {
 
       $form['translator_wrapper'] = array(
-        '#type' => 'fieldset',
-        '#title' => t('Configure translator'),
+        '#type' => 'details',
+        '#title' => t('Configure provider'),
         '#weight' => 20,
         '#prefix' => '<div id="tmgmt-ui-translator-wrapper">',
         '#suffix' => '</div>',
+        '#open' => TRUE,
       );
 
       // Show a list of translators tagged by availability for the selected source
       // and target language combination.
       if (!$translators = tmgmt_translator_labels_flagged($job)) {
-        drupal_set_message(t('There are no translators available. Before you can checkout you need to @configure at least one translator.', array('@configure' => \Drupal::l(t('configure'), Url::fromRoute('entity.tmgmt_translator.collection')))), 'warning');
+        drupal_set_message(t('There are no providers available. Before you can checkout you need to @configure at least one provider.', array('@configure' => \Drupal::l(t('configure'), Url::fromRoute('entity.tmgmt_translator.collection')))), 'warning');
       }
       $preselected_translator = $job->getTranslatorId() && isset($translators[$job->getTranslatorId()]) ? $job->getTranslatorId() : key($translators);
       $job->translator = $form_state->getValue('translator') ?: $preselected_translator;
 
       $form['translator_wrapper']['translator'] = array(
         '#type' => 'select',
-        '#title' => t('Translator'),
-        '#description' => t('The configured translator plugin that will process of the translation.'),
+        '#title' => t('Provider'),
+        '#description' => t('The configured provider that will process the translation.'),
         '#options' => $translators,
+        '#access' => !empty($translators),
         '#default_value' => $job->getTranslatorId(),
         '#required' => TRUE,
         '#ajax' => array(
@@ -301,28 +386,28 @@ class JobForm extends TmgmtFormBase {
         $settings = array();
       }
       $form['translator_wrapper']['settings'] = array(
-          '#type' => 'details',
-          '#title' => t('Checkout settings'),
-          '#prefix' => '<div id="tmgmt-ui-translator-settings">',
-          '#suffix' => '</div>',
-          '#tree' => TRUE,
-          '#open' => TRUE,
-        ) + $settings;
+        '#type' => 'details',
+        '#title' => t('Checkout settings'),
+        '#prefix' => '<div id="tmgmt-ui-translator-settings">',
+        '#suffix' => '</div>',
+        '#tree' => TRUE,
+        '#open' => TRUE,
+      ) + $settings;
     }
     // Otherwise display the checkout info.
-    elseif ($job->getTranslatorId()) {
+    elseif ($job->getTranslatorId() && !$job->isContinuous()) {
 
       $form['translator_wrapper'] = array(
         '#type' => 'details',
-        '#title' => t('Translator information'),
-        '#open' => FALSE,
+        '#title' => t('Provider information'),
+        '#open' => TRUE,
         '#weight' => 20,
       );
 
       $form['translator_wrapper']['checkout_info'] = $this->checkoutInfo($job);
     }
 
-    if (!$job->isSubmittable() && empty($form['translator_wrapper']['checkout_info'])) {
+    if (!$job->isContinuous() && !$job->isSubmittable() && empty($form['translator_wrapper']['checkout_info'])) {
       $form['translator_wrapper']['checkout_info'] = array(
         '#type' => 'markup',
         '#markup' => t('The translator does not provide any information.'),
@@ -334,11 +419,11 @@ class JobForm extends TmgmtFormBase {
       '#weight' => 45,
     );
 
-    if ($view = Views::getView('tmgmt_job_messages')) {
+    if (!$job->isContinuous() && $view = Views::getView('tmgmt_job_messages')) {
       $form['messages'] = array(
         '#type' => 'details',
         '#title' => $view->storage->label(),
-        '#open' => FALSE,
+        '#open' => $job->getTranslatorId() ? TRUE : FALSE,
         '#weight' => 50,
       );
       $output = $view->preview('embed', array($job->id()));
@@ -359,11 +444,14 @@ class JobForm extends TmgmtFormBase {
       '#weight' => 5,
     );
 
-    if ($job->access('submit')) {
+    if (!$job->isUnprocessed()) {
+      $actions['save']['#button_type'] = 'primary';
+    }
+    if (!$job->isContinuous() && $job->access('submit')) {
       $actions['submit'] = array(
         '#type' => 'submit',
         '#button_type' => 'primary',
-        '#value' => tmgmt_redirect_queue_count() == 0 ? t('Submit to translator') : t('Submit to translator and continue'),
+        '#value' => tmgmt_redirect_queue_count() == 0 ? t('Submit to provider') : t('Submit to provider and continue'),
         '#access' => $job->isSubmittable(),
         '#disabled' => !$job->getTranslatorId(),
         '#submit' => array('::submitForm', '::save'),
@@ -400,15 +488,6 @@ class JobForm extends TmgmtFormBase {
         '#limit_validation_errors' => array(),
       );
     }
-    // Only show the 'Cancel' button if the job has been submitted to the
-    // translator.
-    $actions['cancel'] = array(
-      '#type' => 'button',
-      '#value' => t('Cancel'),
-      '#submit' => array('tmgmt_submit_redirect'),
-      '#redirect' => 'admin/tmgmt/jobs',
-      '#access' => $job->isActive(),
-    );
     return $actions;
   }
 
@@ -429,6 +508,17 @@ class JobForm extends TmgmtFormBase {
       }
       elseif (!$translatable_status->getSuccess()) {
         $form_state->setErrorByName('translator', $translatable_status->getReason());
+      }
+    }
+
+    if (!$job->isContinuous() && isset($form['actions']['submit']) && $form_state->getTriggeringElement()['#value'] == $form['actions']['submit']['#value']) {
+      $existing_items_ids = $job->getConflictingItemIds();
+      $form_state->set('existing_item_ids', $existing_items_ids);
+
+      // If the amount of existing items is the same as the total job item count
+      // then the job can not be submitted.
+      if (count($job->getItems()) == count($existing_items_ids)) {
+        $form_state->setErrorByName('target_language', $this->t('All job items are conflicting, the job can not be submitted.'));
       }
     }
   }
@@ -453,6 +543,7 @@ class JobForm extends TmgmtFormBase {
     if (empty($job->label)) {
       $job->label = $job->label();
     }
+
     return $job;
   }
 
@@ -462,16 +553,25 @@ class JobForm extends TmgmtFormBase {
   public function save(array $form, FormStateInterface $form_state) {
     parent::save($form, $form_state);
 
-    // Everything below this line is only invoked if the 'Submit to translator'
+    // Everything below this line is only invoked if the 'Submit to provider'
     // button was clicked.
-    if ($form_state->getTriggeringElement()['#value'] == $form['actions']['submit']['#value']) {
+    if (isset($form['actions']['submit']) && $form_state->getTriggeringElement()['#value'] == $form['actions']['submit']['#value']) {
+
+      // Delete conflicting items.
+      if ($existing_items_ids = $form_state->get('existing_item_ids')) {
+        $storage = \Drupal::entityTypeManager()->getStorage('tmgmt_job_item');
+        $storage->delete($storage->loadMultiple($existing_items_ids));
+        $num_of_items = count($existing_items_ids);
+        drupal_set_message(\Drupal::translation()->formatPlural($num_of_items, '1 conflicting item has been dropped.', '@count conflicting items have been dropped.'), 'warning');
+      }
+
       if (!tmgmt_job_request_translation($this->entity)) {
         // Don't redirect the user if the translation request failed but retain
         // existing destination parameters so we can redirect once the request
         // finished successfully.
         unset($_GET['destination']);
       }
-      else if ($redirect = tmgmt_redirect_queue_dequeue()) {
+      elseif ($redirect = tmgmt_redirect_queue_dequeue()) {
         // Proceed to the next redirect queue item, if there is one.
         $form_state->setRedirectUrl(Url::fromUri('base:' . $redirect));
       }
@@ -503,7 +603,7 @@ class JobForm extends TmgmtFormBase {
     $translator = $job->getTranslator();
     $result = $translator->checkAvailable();
     if (!$result->getSuccess()) {
-      $form['#description'] = $result->getSuccess();
+      $form['#description'] = $result->getReason();
       return $form;
     }
     // @todo: if the target language is not defined, the check will not work if the first language in the list is not available.
@@ -523,7 +623,7 @@ class JobForm extends TmgmtFormBase {
   function checkoutInfo(JobInterface $job) {
     // The translator might have been disabled or removed.
     if (!$job->hasTranslator()) {
-      return array('#markup' => t('The job has no translator assigned.'));
+      return array('#markup' => t('The job has no provider assigned.'));
     }
     $translator = $job->getTranslator();
     $plugin_ui = $this->translatorManager->createUIInstance($translator->getPluginId());
@@ -542,10 +642,18 @@ class JobForm extends TmgmtFormBase {
    * target / source language dropdowns.
    */
   public function ajaxLanguageSelect(array $form, FormStateInterface $form_state) {
+    $number_of_existing_items = count($this->entity->getConflictingItemIds());
     $replace = $form_state->getUserInput()['_triggering_element_name'] == 'source_language' ? 'target_language' : 'source_language';
     $response = new AjaxResponse();
     $response->addCommand(new ReplaceCommand('#tmgmt-ui-translator-wrapper', $form['translator_wrapper']));
     $response->addCommand(new ReplaceCommand('#tmgmt-ui-' . str_replace('_', '-', $replace), $form['info'][$replace]));
+    if ($number_of_existing_items) {
+      $response->addCommand(new InvokeCommand('.existing-items', 'removeClass', array('hidden')));
+      $response->addCommand(new ReplaceCommand('.existing-items > div', \Drupal::translation()->formatPlural($number_of_existing_items, '1 item conflict with pending item and will be dropped on submission.', '@count items conflict with pending items and will be dropped on submission.')));
+    }
+    else {
+      $response->addCommand(new InvokeCommand('.existing-items', 'addClass', array('hidden')));
+    }
     return $response;
   }
 
@@ -636,6 +744,7 @@ class JobForm extends TmgmtFormBase {
       'title' => $item->label(),
       'type' => $item->getSourceType(),
       'words' => $item->getWordCount(),
+      'tags' => $item->getTagsCount(),
       'reason' => $reason,
     );
 
@@ -661,6 +770,14 @@ class JobForm extends TmgmtFormBase {
   function loadSuggestionsSubmit(array $form, FormStateInterface $form_state) {
     $form_state->setRebuild();
     $form_state->set('rebuild_suggestions', TRUE);
+  }
+
+  /**
+   * Handles submit call to rebuild a job.
+   */
+  public function submitBuildJob(array $form, FormStateInterface $form_state) {
+    $this->entity = $this->buildEntity($form, $form_state);
+    $form_state->setRebuild();
   }
 
 }

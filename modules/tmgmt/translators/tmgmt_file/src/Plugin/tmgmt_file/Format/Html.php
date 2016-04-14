@@ -12,8 +12,6 @@ use Drupal\tmgmt\JobInterface;
 use Drupal\tmgmt_file\Format\DOMDocument;
 use Drupal\tmgmt_file\Format\FormatInterface;
 use Drupal\tmgmt_file\Format\type;
-use Drupal\tmgmt_file\Annotation\FormatPlugin;
-use Drupal\Core\Annotation\Translation;
 
 /**
  * Export into HTML.
@@ -45,9 +43,9 @@ class Html implements FormatInterface {
   /**
    * Implements TMGMTFileExportInterface::export().
    */
-  public function export(JobInterface $job) {
+  public function export(JobInterface $job, $conditions = array()) {
     $items = array();
-    foreach ($job->getItems() as $item) {
+    foreach ($job->getItems($conditions) as $item) {
       $data = \Drupal::service('tmgmt.data')->filterTranslatable($item->getData());
       foreach ($data as $key => $value) {
         $items[$item->id()][$this->encodeIdSafeBase64($item->id() . '][' . $key)] = $value;
@@ -57,7 +55,7 @@ class Html implements FormatInterface {
       '#theme' => 'tmgmt_file_html_template',
       '#tjid' => $job->id(),
       '#source_language' => $job->getRemoteSourceLanguage(),
-      '#target_language' => $job->getRemoteSourceLanguage(),
+      '#target_language' => $job->getRemoteTargetLanguage(),
       '#items' => $items,
     );
     return \Drupal::service('renderer')->renderPlain($elements);
@@ -66,7 +64,7 @@ class Html implements FormatInterface {
   /**
    * Implements TMGMTFileExportInterface::import().
    */
-  public function import($imported_file) {
+  public function import($imported_file, $is_file = TRUE) {
     $dom = new \DOMDocument();
     $dom->loadHTMLFile($imported_file);
     $xml = simplexml_import_dom($dom);
@@ -83,7 +81,7 @@ class Html implements FormatInterface {
   /**
    * {@inheritdoc}
    */
-  public function validateImport($imported_file) {
+  public function validateImport($imported_file, $is_file = TRUE) {
     $dom = new \DOMDocument();
     if (!$dom->loadHTMLFile($imported_file)) {
       return FALSE;
@@ -107,14 +105,14 @@ class Html implements FormatInterface {
     // Attempt to load the job.
     if (!$job = Job::load($meta['JobID'])) {
       drupal_set_message(t('The imported file job id @file_id is not available.', array(
-        '@file_id' => $job->id(),
+        '@file_id' => $meta['JobID'],
       )), 'error');
       return FALSE;
     }
 
     // Check language.
     if ($meta['languageSource'] != $job->getRemoteSourceLanguage() ||
-        $meta['languageTarget'] != $job->getRemoteSourceLanguage()) {
+        $meta['languageTarget'] != $job->getRemoteTargetLanguage()) {
       return FALSE;
     }
 

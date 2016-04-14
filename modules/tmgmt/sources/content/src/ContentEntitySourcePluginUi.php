@@ -52,16 +52,10 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
       );
     }
 
-    $language_options = array();
-    foreach (\Drupal::languageManager()->getLanguages() as $langcode => $language) {
-      $language_options[$langcode] = $language->getName();
-    }
-
     $form['search_wrapper']['search']['langcode'] = array(
-      '#type' => 'select',
+      '#type' => 'language_select',
       '#title' => t('Source Language'),
-      '#options' => $language_options,
-      '#empty_option' => t('All'),
+      '#empty_option' => t('- Any -'),
       '#default_value' => isset($_GET['langcode']) ? $_GET['langcode'] : NULL,
     );
 
@@ -73,7 +67,7 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
         '#type' => 'select',
         '#title' => $entity_type->getBundleLabel(),
         '#options' => $bundle_options,
-        '#empty_option' => t('All'),
+        '#empty_option' => t('- Any -'),
         '#default_value' => isset($_GET[$bundle_key]) ? $_GET[$bundle_key] : NULL,
       );
     }
@@ -85,16 +79,10 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
       return $form;
     }
 
-    $options = array();
-    foreach (\Drupal::languageManager()->getLanguages() as $langcode => $language) {
-      $options[$langcode] = $language->getName();
-    }
-
     $form['search_wrapper']['search']['target_language'] = array(
-      '#type' => 'select',
+      '#type' => 'language_select',
       '#title' => $this->t('Target language'),
-      '#options' => $options,
-      '#empty_option' => $this->t('Any'),
+      '#empty_option' => $this->t('- Any -'),
       '#default_value' => isset($_GET['target_language']) ? $_GET['target_language'] : NULL,
     );
     $form['search_wrapper']['search']['target_status'] = array(
@@ -163,18 +151,15 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
 
     $row = array(
       'id' => $entity->id(),
-      'title' => $entity->link($label),
+      'title' => $entity->hasLinkTemplate('canonical') ? $entity->toLink($label, 'canonical')->toString() : ($entity->label() ?: $entity->id()),
     );
-
-    if (isset($data['bundle'])) {
-      $row['bundle'] = $data['bundle'];
-    }
 
     if (count($bundles) > 1) {
       $row['bundle'] = isset($bundles[$entity->bundle()]) ? $bundles[$entity->bundle()] : t('Unknown');
     }
 
     // Load entity translation specific data.
+    $manager = \Drupal::service('content_translation.manager');
     foreach (\Drupal::languageManager()->getLanguages() as $langcode => $language) {
 
       $translation_status = 'current';
@@ -185,20 +170,18 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
       elseif (!isset($translations[$langcode])) {
         $translation_status = 'missing';
       }
-
-      elseif (!empty($translations->data[$langcode]['translate'])) {
-        $translation_status = 'outofdate';
+      elseif ($translation = $entity->getTranslation($langcode)) {
+        $metadata = $manager->getTranslationMetadata($translation);
+        if ($metadata->isOutdated()) {
+          $translation_status = 'outofdate';
+        }
       }
 
-      $array = array(
-        '#theme' => 'tmgmt_translation_language_status_single',
-        '#translation_status' => $translation_status,
-        '#job_item' => isset($current_job_items[$langcode]) ? $current_job_items[$langcode] : NULL,
-      );
-      $row['langcode-' . $langcode] = array(
-        'data' => \Drupal::service('renderer')->render($array),
+      $build = $this->buildTranslationStatus($translation_status, isset($current_job_items[$langcode]) ? $current_job_items[$langcode] : NULL);
+      $row['langcode-' . $langcode] = [
+        'data' => \Drupal::service('renderer')->render($build),
         'class' => array('langstatus-' . $langcode),
-      );
+      ];
     }
     return $row;
   }
@@ -212,13 +195,17 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
     // Build a list of allowed search conditions and get their values from the request.
     $entity_type = \Drupal::entityManager()->getDefinition($type);
     $whitelist = array('langcode', 'target_language', 'target_status');
-    $whitelist[] = $entity_type->getKey('bundle');
-    $whitelist[] = $entity_type->getKey('label');
+    if ($entity_type->hasKey('bundle')) {
+      $whitelist[] = $entity_type->getKey('bundle');
+    }
+    if ($entity_type->hasKey('label')) {
+      $whitelist[] = $entity_type->getKey('label');
+    }
     $search_property_params = array_filter(\Drupal::request()->query->all());
     $search_property_params = array_intersect_key($search_property_params, array_flip($whitelist));
     $bundles = $this->getTranslatableBundles($type);
 
-    foreach ($this->getTranslatableEntities($type, $search_property_params, TRUE) as $entity) {
+    foreach (self::getTranslatableEntities($type, $search_property_params, TRUE) as $entity) {
       // This occurs on user entity type.
       if ($entity->id()) {
         $form['items']['#options'][$entity->id()] = $this->overviewRow($entity, $bundles);
@@ -295,6 +282,53 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
   }
 
   /**
+   * Adds selected sources to continuous jobs.
+   *
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   Form state array.
+   * @param string $item_type
+   *   Entity type.
+   */
+  public function overviewSubmitToContinuousJobs(FormStateInterface $form_state, $item_type) {
+    if ($form_state->getValue('add_all_to_continuous_jobs')) {
+      // Build a list of allowed search conditions and get their values from the request.
+      $entity_type = \Drupal::entityManager()->getDefinition($item_type);
+      $whitelist = array('langcode', 'target_language', 'target_status');
+      $whitelist[] = $entity_type->getKey('bundle');
+      $whitelist[] = $entity_type->getKey('label');
+      $search_property_params = array_filter(\Drupal::request()->query->all());
+      $search_property_params = array_intersect_key($search_property_params, array_flip($whitelist));
+      $operations = array(
+        array(
+          array(ContentEntitySourcePluginUi::class, 'createContinuousJobItemsBatch'),
+          array($item_type, $search_property_params),
+        ),
+      );
+      $batch = array(
+        'title' => t('Creating continuous job items'),
+        'operations' => $operations,
+        'finished' => 'tmgmt_content_create_continuous_job_items_batch_finished',
+      );
+      batch_set($batch);
+    }
+    else {
+      $entities = entity_load_multiple($item_type, array_filter($form_state->getValue('items')));
+      $job_items = 0;
+      // Loop through entities and add them to continuous jobs.
+      foreach ($entities as $entity) {
+        $job_items += tmgmt_content_create_continuous_job_items($entity);
+      }
+
+      if ($job_items !== 0) {
+        drupal_set_message(\Drupal::translation()->formatPlural($job_items, '1 continuous job item has been created.', '@count continuous job items have been created.'));
+      }
+      else {
+        drupal_set_message(t('None of the selected sources can be added to continuous jobs.'), 'warning');
+      }
+    }
+  }
+
+  /**
    * A function to get entity translatable bundles.
    *
    * Note that for comment entity type it will return the same as for node as
@@ -338,17 +372,63 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
    *   is processed.
    * @param bool $pager
    *   Flag to determine if pager will be used.
+   * @param int $offset
+   *   Query range offset.
+   * @param int $limit
+   *   Query range limit.
    *
    * @return array ContentEntityInterface[]
    *   Array of translatable entities.
    */
-  function getTranslatableEntities($entity_type_id, $property_conditions = array(), $pager = FALSE) {
+  public static function getTranslatableEntities($entity_type_id, $property_conditions = array(), $pager = FALSE, $offset = 0, $limit = 0) {
+    $query = self::buildTranslatableEntitiesQuery($entity_type_id, $property_conditions);
+
+    if ($query) {
+      if ($pager) {
+        $query = $query->extend('Drupal\Core\Database\Query\PagerSelectExtender')->limit(\Drupal::config('tmgmt.settings')->get('source_list_limit'));
+      }
+      elseif ($limit) {
+        $query->range($offset, $limit);
+      }
+      else {
+        $query->range(0, \Drupal::config('tmgmt.settings')->get('source_list_limit'));
+      }
+
+      $result = $query->execute();
+      $entity_ids = $result->fetchCol();
+      $entities = array();
+
+      if (!empty($entity_ids)) {
+        $entities = entity_load_multiple($entity_type_id, $entity_ids);
+      }
+      return $entities;
+    }
+    return array();
+  }
+
+  /**
+   * Returns the query for translatable entities of a given type.
+   *
+   * Additionally you can specify entity property conditions.
+   *
+   * @param string $entity_type_id
+   *   Drupal entity type.
+   * @param array $property_conditions
+   *   Entity properties. There is no value processing so caller must make sure
+   *   the provided entity property exists for given entity type and its value
+   *   is processed.
+   *
+   * @return \Drupal\Core\Entity\Query\QueryInterface|NULL
+   *   The query for translatable entities or NULL if the query can not be
+   *   built for this entity type.
+   */
+  public static function buildTranslatableEntitiesQuery($entity_type_id, $property_conditions = array()) {
 
     // If given entity type does not have entity translations enabled, no reason
     // to continue.
     $enabled_types = \Drupal::service('plugin.manager.tmgmt.source')->createInstance('content')->getItemTypes();
     if (!isset($enabled_types[$entity_type_id])) {
-      return array();
+      return NULL;
     }
 
     $langcodes = array_keys(\Drupal::languageManager()->getLanguages());
@@ -426,7 +506,7 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
         }
       }
       if (!$bundles) {
-        return array();
+        return NULL;
       }
 
       // If we have type property add condition.
@@ -447,23 +527,41 @@ class ContentEntitySourcePluginUi extends SourcePluginUiBase {
       $alias = $property_name == 'langcode' ? $langcode_table_alias : 'e';
       $query->condition($alias . '.' . $property_name, (array) $property_value, 'IN');
     }
-
-    if ($pager) {
-      $query = $query->extend('Drupal\Core\Database\Query\PagerSelectExtender')->limit(\Drupal::config('tmgmt.settings')->get('source_list_limit'));
-    }
-    else {
-      $query->range(0, \Drupal::config('tmgmt.settings')->get('source_list_limit'));
-    }
-
     $query->orderBy($entity_type->getKey('id'), 'DESC');
-    $result = $query->execute();
-    $entity_ids = $result->fetchCol();
-    $entities = array();
 
-    if (!empty($entity_ids)) {
-      $entities = entity_load_multiple($entity_type_id, $entity_ids);
+    return $query;
+  }
+
+  /**
+   * Creates continuous job items for entity.
+   *
+   * Batch callback function.
+   */
+  public static function createContinuousJobItemsBatch($item_type, array $search_property_params, &$context) {
+    if (empty($context['sandbox'])) {
+      $context['sandbox']['offset'] = 0;
+      $context['results']['job_items'] = 0;
+      $context['sandbox']['progress'] = 0;
+      $query = self::buildTranslatableEntitiesQuery($item_type, $search_property_params);
+      $context['sandbox']['max'] = $query->countQuery()->execute()->fetchField();
     }
-    return $entities;
+    $limit = \Drupal::config('tmgmt.settings')->get('source_list_limit');
+    $entities = self::getTranslatableEntities($item_type, $search_property_params, FALSE, $context['sandbox']['offset'], $limit);
+    $context['sandbox']['offset'] += $limit;
+
+    // Loop through entities and add them to continuous jobs.
+    foreach ($entities as $entity) {
+      $context['results']['job_items'] += tmgmt_content_create_continuous_job_items($entity);
+      $context['sandbox']['progress']++;
+    }
+
+    $context['message'] = t('Processed @number sources out of @max', array('@number' => $context['sandbox']['progress'], '@max' => $context['sandbox']['max']));
+    if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+      $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+    }
+    elseif (count($entities) < $limit) {
+      $context['finished'] = 1;
+    }
   }
 
 }

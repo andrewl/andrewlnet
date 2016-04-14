@@ -7,18 +7,17 @@
 
 namespace Drupal\tmgmt_local\Plugin\tmgmt\Translator;
 
-use Drupal\tmgmt\Entity\Job;
-use Drupal\tmgmt\Entity\Translator;
 use Drupal\tmgmt\JobInterface;
 use Drupal\tmgmt\TranslatorInterface;
 use Drupal\tmgmt\TranslatorPluginBase;
+use Drupal\tmgmt_local\LocalTaskInterface;
 
 /**
- * Local translator.
+ * Drupal user provider.
  *
  * @TranslatorPlugin(
  *   id = "local",
- *   label = @Translation("Local translator"),
+ *   label = @Translation("Drupal user"),
  *   description = @Translation("Allows local users to process translation jobs."),
  *   ui = "\Drupal\tmgmt_local\LocalTranslatorUi",
  *   default_settings = {},
@@ -37,14 +36,14 @@ class LocalTranslator extends TranslatorPluginBase {
 
     // Create local task for this job.
     $local_task = tmgmt_local_task_create(array(
-      'uid' => $job->uid,
+      'uid' => $job->getOwnerId(),
       'tuid' => $tuid,
       'tjid' => $job->id(),
-      'title' => t('Task for @label', array('@label' => $job->label())),
+      'title' => $job->label(),
     ));
     // If we have translator then switch to pending state.
     if ($tuid) {
-      $local_task->status = TMGMT_LOCAL_TASK_STATUS_PENDING;
+      $local_task->status = LocalTaskInterface::STATUS_PENDING;
     }
     $local_task->save();
 
@@ -62,7 +61,7 @@ class LocalTranslator extends TranslatorPluginBase {
    */
   public function getSupportedTargetLanguages(TranslatorInterface $translator, $source_language) {
     $languages = tmgmt_local_supported_target_languages($source_language);
-    if ($translator->getSetting('allow_all')) {
+    if (\Drupal::config('tmgmt_local.settings')->get('allow_all')) {
       $languages += parent::getSupportedTargetLanguages($translator, $source_language);
     }
     return $languages;

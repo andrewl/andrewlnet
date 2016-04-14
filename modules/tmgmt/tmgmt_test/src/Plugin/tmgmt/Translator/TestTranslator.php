@@ -8,6 +8,7 @@
 namespace Drupal\tmgmt_test\Plugin\tmgmt\Translator;
 
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\tmgmt\ContinuousTranslatorInterface;
 use Drupal\tmgmt\Translator\AvailableResult;
 use Drupal\tmgmt\Translator\TranslatableResult;
 use Drupal\tmgmt\JobInterface;
@@ -21,17 +22,17 @@ use Drupal\tmgmt\TranslatorRejectDataInterface;
  *
  * @TranslatorPlugin(
  *   id = "test_translator",
- *   label = @Translation("Test translator"),
- *   description = @Translation("Simple translator for testing purposes."),
+ *   label = @Translation("Test provider"),
+ *   description = @Translation("Simple provider for testing purposes."),
  *   default_settings = {
  *     "expose_settings" = TRUE,
  *   },
  *   ui = "Drupal\tmgmt_test\TestTranslatorUi"
  * )
  */
-class TestTranslator extends TranslatorPluginBase implements TranslatorRejectDataInterface {
+class TestTranslator extends TranslatorPluginBase implements TranslatorRejectDataInterface, ContinuousTranslatorInterface {
 
- /**
+  /**
    * {@inheritdoc}
    */
   protected $escapeStart = '[[[';
@@ -150,6 +151,41 @@ class TestTranslator extends TranslatorPluginBase implements TranslatorRejectDat
    */
   public function rejectForm(array $form, FormStateInterface $form_state) {
     return $form;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function requestJobItemsTranslation(array $job_items) {
+    $group = [];
+    /** @var JobItemInterface $job_item */
+    foreach ($job_items as $job_item) {
+      $group[] = ['item_id' => $job_item->id(), 'job_id' => $job_item->getJobId()];
+      // Add a debug message.
+      $job_item->active('Requested translation to the continuous translator.', [], 'debug');
+
+      // The dummy translation prefixes strings with the target language.
+      $data = \Drupal::service('tmgmt.data')->filterTranslatable($job_item->getData());
+      $tdata = [];
+      foreach ($data as $key => $value) {
+        if ($job_item->getJob()->getTargetLangcode() != $job_item->getJob()
+            ->getRemoteTargetLanguage()
+        ) {
+          $tdata[$key]['#text'] = $job_item->getJob()
+              ->getTargetLangcode() . '(' . $job_item->getJob()
+              ->getRemoteTargetLanguage() . '): ' . $value['#text'];
+        }
+        else {
+          $tdata[$key]['#text'] = $job_item->getJob()
+              ->getTargetLangcode() . ': ' . $value['#text'];
+        }
+      }
+      $job_item->addTranslatedData(\Drupal::service('tmgmt.data')
+        ->unflatten($tdata));
+    }
+    $groups = \Drupal::state()->get('job_item_groups') ?: [];
+    $groups[] = $group;
+    \Drupal::state()->set('job_item_groups', $groups, $group);
   }
 
 }

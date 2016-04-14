@@ -7,7 +7,6 @@
 
 namespace Drupal\tmgmt\Plugin\views\field;
 
-use Drupal\Component\Annotation\PluginID;
 use Drupal\views\Plugin\views\field\FieldPluginBase;
 use Drupal\views\ResultRow;
 
@@ -21,9 +20,12 @@ class Translator extends FieldPluginBase {
   /**
    * {@inheritdoc}
    */
-  function render(ResultRow $values) {
+  public function render(ResultRow $values) {
+    /** @var \Drupal\tmgmt\JobInterface $job */
     if ($job = $values->_entity) {
-      return $job->hasTranslator() ? $job->getTranslator()->label() : t('Missing translator');
+      return $job->getTranslatorLabel();
     }
+    return NULL;
   }
+
 }

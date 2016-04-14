@@ -155,122 +155,6 @@ display:
       row:
         type: fields
       fields:
-        label:
-          id: label
-          table: tmgmt_job
-          field: label
-          relationship: none
-          group_type: group
-          admin_label: ''
-          label: Label
-          exclude: false
-          alter:
-            alter_text: false
-            text: ''
-            make_link: false
-            path: ''
-            absolute: false
-            external: false
-            replace_spaces: false
-            path_case: none
-            trim_whitespace: false
-            alt: ''
-            rel: ''
-            link_class: ''
-            prefix: ''
-            suffix: ''
-            target: ''
-            nl2br: false
-            max_length: 0
-            word_boundary: true
-            ellipsis: true
-            more_link: false
-            more_link_text: ''
-            more_link_path: ''
-            strip_tags: false
-            trim: false
-            preserve_tags: ''
-            html: false
-          element_type: ''
-          element_class: ''
-          element_label_type: ''
-          element_label_class: ''
-          element_label_colon: true
-          element_wrapper_type: ''
-          element_wrapper_class: ''
-          element_default_classes: true
-          empty: ''
-          hide_empty: false
-          empty_zero: false
-          hide_alter_empty: true
-          entity_type: tmgmt_job
-          plugin_id: tmgmt_entity_label
-        source_language_1:
-          id: source_language_1
-          table: tmgmt_job
-          field: source_language
-          relationship: none
-          group_type: group
-          admin_label: ''
-          label: From
-          exclude: false
-          alter:
-            alter_text: false
-            text: ''
-            make_link: false
-            path: ''
-            absolute: false
-            external: false
-            replace_spaces: false
-            path_case: none
-            trim_whitespace: false
-            alt: ''
-            rel: ''
-            link_class: ''
-            prefix: ''
-            suffix: ''
-            target: ''
-            nl2br: false
-            max_length: 0
-            word_boundary: true
-            ellipsis: true
-            more_link: false
-            more_link_text: ''
-            more_link_path: ''
-            strip_tags: false
-            trim: false
-            preserve_tags: ''
-            html: false
-          element_type: ''
-          element_class: ''
-          element_label_type: ''
-          element_label_class: ''
-          element_label_colon: true
-          element_wrapper_type: ''
-          element_wrapper_class: ''
-          element_default_classes: true
-          empty: ''
-          hide_empty: false
-          empty_zero: false
-          hide_alter_empty: true
-          click_sort_column: value
-          type: language
-          settings:
-            link_to_entity: false
-            native_language: false
-          group_column: value
-          group_columns: {  }
-          group_rows: true
-          delta_limit: 0
-          delta_offset: 0
-          delta_reversed: false
-          delta_first_last: false
-          multi_type: separator
-          separator: ', '
-          field_api_classes: false
-          entity_type: tmgmt_job
-          entity_field: source_language
-          plugin_id: field
         state:
           id: state
           table: tmgmt_job
@@ -278,7 +162,7 @@ display:
           relationship: none
           group_type: group
           admin_label: ''
-          label: 'Job state'
+          label: 'State'
           exclude: false
           alter:
             alter_text: false
@@ -336,6 +220,122 @@ display:
           field_api_classes: false
           entity_type: tmgmt_job
           entity_field: state
+          plugin_id: field
+        label:
+          id: label
+          table: tmgmt_job
+          field: label
+          relationship: none
+          group_type: group
+          admin_label: ''
+          label: 'Label'
+          exclude: false
+          alter:
+            alter_text: false
+            text: ''
+            make_link: false
+            path: ''
+            absolute: false
+            external: false
+            replace_spaces: false
+            path_case: none
+            trim_whitespace: false
+            alt: ''
+            rel: ''
+            link_class: ''
+            prefix: ''
+            suffix: ''
+            target: ''
+            nl2br: false
+            max_length: 0
+            word_boundary: true
+            ellipsis: true
+            more_link: false
+            more_link_text: ''
+            more_link_path: ''
+            strip_tags: false
+            trim: false
+            preserve_tags: ''
+            html: false
+          element_type: ''
+          element_class: ''
+          element_label_type: ''
+          element_label_class: ''
+          element_label_colon: true
+          element_wrapper_type: ''
+          element_wrapper_class: ''
+          element_default_classes: true
+          empty: ''
+          hide_empty: false
+          empty_zero: false
+          hide_alter_empty: true
+          entity_type: tmgmt_job
+          plugin_id: tmgmt_entity_label
+        source_language_1:
+          id: source_language_1
+          table: tmgmt_job
+          field: source_language
+          relationship: none
+          group_type: group
+          admin_label: ''
+          label: 'From'
+          exclude: false
+          alter:
+            alter_text: false
+            text: ''
+            make_link: false
+            path: ''
+            absolute: false
+            external: false
+            replace_spaces: false
+            path_case: none
+            trim_whitespace: false
+            alt: ''
+            rel: ''
+            link_class: ''
+            prefix: ''
+            suffix: ''
+            target: ''
+            nl2br: false
+            max_length: 0
+            word_boundary: true
+            ellipsis: true
+            more_link: false
+            more_link_text: ''
+            more_link_path: ''
+            strip_tags: false
+            trim: false
+            preserve_tags: ''
+            html: false
+          element_type: ''
+          element_class: ''
+          element_label_type: ''
+          element_label_class: ''
+          element_label_colon: true
+          element_wrapper_type: ''
+          element_wrapper_class: ''
+          element_default_classes: true
+          empty: ''
+          hide_empty: false
+          empty_zero: false
+          hide_alter_empty: true
+          click_sort_column: value
+          type: language
+          settings:
+            link_to_entity: false
+            native_language: false
+          group_column: value
+          group_columns: {  }
+          group_rows: true
+          delta_limit: 0
+          delta_offset: 0
+          delta_reversed: false
+          delta_first_last: false
+          multi_type: separator
+          separator: ', '
+          field_api_classes: false
+          entity_type: tmgmt_job
+          entity_field: source_language
           plugin_id: field
         target_language:
           id: target_language
@@ -410,7 +410,7 @@ display:
           relationship: none
           group_type: group
           admin_label: ''
-          label: Translator
+          label: Provider
           exclude: false
           alter:
             alter_text: false
@@ -511,7 +511,7 @@ display:
           relationship: none
           group_type: group
           admin_label: ''
-          label: 'Word count'
+          label: 'Words'
           exclude: false
           alter:
             alter_text: false
@@ -554,6 +554,56 @@ display:
           hide_alter_empty: true
           entity_type: tmgmt_job
           plugin_id: tmgmt_wordcount
+        tags_count:
+          id: tags_count
+          table: tmgmt_job
+          field: tags_count
+          relationship: none
+          group_type: group
+          admin_label: ''
+          label: 'Tags'
+          exclude: false
+          alter:
+            alter_text: false
+            text: ''
+            make_link: false
+            path: ''
+            absolute: false
+            external: false
+            replace_spaces: false
+            path_case: none
+            trim_whitespace: false
+            alt: ''
+            rel: ''
+            link_class: ''
+            prefix: ''
+            suffix: ''
+            target: ''
+            nl2br: false
+            max_length: 0
+            word_boundary: true
+            ellipsis: true
+            more_link: false
+            more_link_text: ''
+            more_link_path: ''
+            strip_tags: false
+            trim: false
+            preserve_tags: ''
+            html: false
+          element_type: ''
+          element_class: ''
+          element_label_type: ''
+          element_label_class: ''
+          element_label_colon: true
+          element_wrapper_type: ''
+          element_wrapper_class: ''
+          element_default_classes: true
+          empty: ''
+          hide_empty: false
+          empty_zero: false
+          hide_alter_empty: true
+          entity_type: tmgmt_job
+          plugin_id: tmgmt_tagscount
         changed:
           id: changed
           table: tmgmt_job
@@ -615,7 +665,7 @@ display:
           relationship: none
           group_type: group
           admin_label: ''
-          label: 'Operations links'
+          label: 'Operations'
           exclude: false
           alter:
             alter_text: false
@@ -667,16 +717,14 @@ display:
           relationship: none
           group_type: group
           admin_label: ''
-          operator: '='
+          operator: job_state
           value:
-            min: ''
-            max: ''
-            value: ''
+            value: open_jobs
           group: 1
           exposed: true
           expose:
             operator_id: state_op
-            label: 'Job state'
+            label: 'State'
             description: ''
             use_operator: false
             operator: state_op
@@ -688,62 +736,19 @@ display:
               authenticated: authenticated
               anonymous: '0'
               administrator: '0'
-          is_grouped: true
+          is_grouped: false
           group_info:
-            label: 'Job state'
+            label: ''
             description: ''
-            identifier: state
+            identifier: ''
             optional: true
             widget: select
             multiple: false
             remember: false
             default_group: All
             default_group_multiple: {  }
-            group_items:
-              1:
-                title: Unprocessed
-                operator: '='
-                value:
-                  value: '0'
-                  min: ''
-                  max: ''
-              2:
-                title: Active
-                operator: '='
-                value:
-                  value: '1'
-                  min: ''
-                  max: ''
-              3:
-                title: Rejected
-                operator: '='
-                value:
-                  value: '2'
-                  min: ''
-                  max: ''
-              4:
-                title: Accepted
-                operator: '='
-                value:
-                  value: '3'
-                  min: ''
-                  max: ''
-              5:
-                title: Aborted
-                operator: '='
-                value:
-                  value: '4'
-                  min: ''
-                  max: ''
-              6:
-                title: Finished
-                operator: '='
-                value:
-                  value: '5'
-                  min: ''
-                  max: ''
+            group_items: {  }
           entity_type: tmgmt_job
-          entity_field: state
           plugin_id: numeric
         source_language:
           id: source_language
@@ -840,7 +845,7 @@ display:
           exposed: true
           expose:
             operator_id: translator_op
-            label: Translator
+            label: Provider
             description: ''
             use_operator: false
             operator: translator_op
@@ -871,7 +876,17 @@ display:
       sorts: {  }
       title: 'Job overview'
       header: {  }
-      footer: {  }
+      footer:
+        footer:
+          id: footer
+          table: tmgmt_job
+          field: footer
+          relationship: none
+          group_type: group
+          admin_label: ''
+          empty: false
+          entity_type: tmgmt_job
+          plugin_id: tmgmt_job_legend
       empty:
         area_text_custom:
           id: area_text_custom
@@ -909,15 +924,15 @@ display:
       rendering_language: '***LANGUAGE_entity_default***'
       menu:
         type: normal
-        title: Translation
-        description: ''
-        parent: system.admin
-        weight: 0
+        title: Jobs
+        description: 'Manage and review existing translation jobs.'
+        parent: tmgmt.admin_tmgmt
+        weight: 10
         context: '0'
         menu_name: admin
       tab_options:
         type: normal
-        title: Translation
+        title: Jobs
         description: ''
         weight: 0
       display_extenders: {  }

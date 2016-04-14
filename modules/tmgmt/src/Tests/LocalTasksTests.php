@@ -1,6 +1,6 @@
 <?php
 
-/*
+/**
  * @file
  * Contains Drupal\tmgmt\Tests\LocalTasksTest.
  */
@@ -20,13 +20,13 @@ class LocalTasksTests extends TMGMTTestBase {
     'views',
     'tmgmt_content',
     'tmgmt_file',
-    'tmgmt_config'
+    'tmgmt_config',
   );
 
   /**
    * {@inheritdoc}
    */
-  function setUp() {
+  public function setUp() {
     parent::setUp();
     // Login as administrator to view Cart,Jobs and Sources.
     $this->loginAsAdmin(array('access administration pages'));
@@ -35,11 +35,11 @@ class LocalTasksTests extends TMGMTTestBase {
   /**
    * Tests UI for translator local tasks.
    */
-  public function testTranslatorLocalTaks() {
+  public function testTranslatorLocalTasks() {
 
     $this->drupalCreateContentType(array(
       'type' => 'article',
-      'name' => 'Article'
+      'name' => 'Article',
     ));
     $content_translation_manager = \Drupal::service('content_translation.manager');
     // Add a node type and enable translation for nodes and users.
@@ -47,7 +47,7 @@ class LocalTasksTests extends TMGMTTestBase {
     $content_translation_manager->setEnabled('user', 'user', TRUE);
 
     drupal_static_reset();
-    \Drupal::entityManager()->clearCachedDefinitions();
+    \Drupal::entityTypeManager()->clearCachedDefinitions();
     \Drupal::service('router.builder')->rebuild();
     \Drupal::service('entity.definition_update_manager')->applyUpdates();
 
@@ -58,6 +58,8 @@ class LocalTasksTests extends TMGMTTestBase {
     // Make sure the Cart,Jobs and Sources pages are available.
     $this->clickLink(t('Cart'));
     $this->clickLink(t('Jobs'));
+    $this->clickLink(t('Providers'));
+    $this->clickLink(t('Settings'));
     $this->clickLink(t('Sources'));
 
     // Assert the availability of the enabled content.
@@ -73,7 +75,7 @@ class LocalTasksTests extends TMGMTTestBase {
   /**
    * Tests UI for translator local tasks without sources.
    */
-  public function dtestTranslatorLocalTasksNoSource() {
+  public function testTranslatorLocalTasksNoSource() {
     // Login as administrator to view Cart,Jobs and Sources.
     $this->loginAsAdmin(array('access administration pages'));
     $this->drupalGet('admin');
@@ -81,4 +83,5 @@ class LocalTasksTests extends TMGMTTestBase {
     $this->clickLink(t('Sources'));
     $this->assertText(t('No sources enabled.'));
   }
+
 }

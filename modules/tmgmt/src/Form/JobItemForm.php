@@ -7,12 +7,16 @@
 
 namespace Drupal\tmgmt\Form;
 
-use Drupal\Component\Utility\NestedArray;
+use Drupal\Component\Diff\Diff;
 use Drupal\Component\Utility\Html;
+use Drupal\Component\Utility\NestedArray;
 use Drupal\Component\Utility\SafeMarkup;
 use Drupal\Component\Utility\Xss;
+use Drupal\filter\Entity\FilterFormat;
+use \Drupal\Core\Diff\DiffFormatter;
 use Drupal\tmgmt\Entity\JobItem;
-use Drupal\tmgmt\JobItemInterface;
+use Drupal\tmgmt\SourcePreviewInterface;
+use Drupal\tmgmt\TMGMTException;
 use Drupal\tmgmt\TranslatorRejectDataInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Element;
@@ -61,6 +65,22 @@ class JobItemForm extends TmgmtFormBase {
       '#suffix' => '</div>',
     );
 
+    $form['info']['source_language'] = array(
+      '#type' => 'item',
+      '#title' => t('Source language'),
+      '#markup' => $item->getJob()->getSourceLanguage()->getName(),
+      '#prefix' => '<div class="tmgmt-ui-source-language tmgmt-ui-info-item">',
+      '#suffix' => '</div>',
+    );
+
+    $form['info']['target_language'] = array(
+      '#type' => 'item',
+      '#title' => t('Target language'),
+      '#markup' => $item->getJob()->getTargetLanguage()->getName(),
+      '#prefix' => '<div class="tmgmt-ui-target-language tmgmt-ui-info-item">',
+      '#suffix' => '</div>',
+    );
+
     $form['info']['changed'] = array(
       '#type' => 'item',
       '#title' => t('Last change'),
@@ -90,11 +110,10 @@ class JobItemForm extends TmgmtFormBase {
 
     // Display selected translator for already submitted jobs.
     if (!$item->getJob()->isSubmittable()) {
-      $translators = tmgmt_translator_labels();
       $form['info']['translator'] = array(
         '#type' => 'item',
-        '#title' => t('Translator'),
-        '#markup' => isset($translators[$item->getJob()->getTranslatorId()]) ? Html::escape($translators[$item->getJob()->getTranslatorId()]) : t('Missing translator'),
+        '#title' => t('Provider'),
+        '#markup' => $job->getTranslatorLabel(),
         '#prefix' => '<div class="tmgmt-ui-translator tmgmt-ui-info-item">',
         '#suffix' => '</div>',
       );
@@ -106,11 +125,14 @@ class JobItemForm extends TmgmtFormBase {
     );
     // Build the review form.
     $data = $item->getData();
+    $this->trackChangedSource(\Drupal::service('tmgmt.data')->flatten($data), $form_state);
     // Need to keep the first hierarchy. So flatten must take place inside
     // of the foreach loop.
-    $zebra = 'even';
     foreach (Element::children($data) as $key) {
-      $form['review'][$key] = $this->reviewFormElement($form_state, \Drupal::service('tmgmt.data')->flatten($data[$key], $key), $item, $zebra, $key);
+      $review_element = $this->reviewFormElement($form_state, \Drupal::service('tmgmt.data')->flatten($data[$key], $key), $key);
+      if ($review_element) {
+        $form['review'][$key] = $review_element;
+      }
     }
 
     if ($view =  entity_load('view', 'tmgmt_job_item_messages')) {
@@ -135,7 +157,7 @@ class JobItemForm extends TmgmtFormBase {
       $plugin_ui = $this->translatorManager->createUIInstance($item->getTranslator()->getPluginId());
       $form = $plugin_ui->reviewForm($form, $form_state, $item);
     }
-
+    $form['footer'] = tmgmt_color_review_legend();
     return $form;
   }
 
@@ -147,7 +169,7 @@ class JobItemForm extends TmgmtFormBase {
       '#type' => 'submit',
       '#button_type' => 'primary',
       '#value' => t('Save as completed'),
-      '#access' => $item->isNeedsReview(),
+      '#access' => $item->isNeedsReview() && !$form_state->has('accept_item'),
       '#validate' => array('::validateForm', '::validateJobItem'),
       '#submit' => array('::submitForm', '::save'),
     );
@@ -157,25 +179,33 @@ class JobItemForm extends TmgmtFormBase {
       '#access' => !$item->isAccepted(),
       '#submit' => array('::submitForm', '::save'),
     );
+    if ($item->isActive()) {
+      $actions['save']['#button_type'] = 'primary';
+    }
     $actions['validate'] = array(
       '#type' => 'submit',
       '#value' => t('Validate'),
+      '#access' => !$item->isAccepted(),
       '#validate' => array('::validateForm', '::validateJobItem'),
       '#submit' => array('::submitForm', '::submitRebuild'),
     );
     $actions['validate_html'] = array(
       '#type' => 'submit',
       '#value' => t('Validate HTML tags'),
+      '#access' => !$item->isAccepted(),
       '#validate' => ['::validateTags'],
       '#submit' => ['::submitForm'],
     );
-    $url = $item->getJob()->url();
-    $url = isset($_GET['destination']) ? $_GET['destination'] : $url;
-    $actions['cancel'] = array(
-      '#type' => 'link',
-      '#title' => t('Cancel'),
-      '#href' => $url,
-    );
+    if ($item->getSourcePlugin() instanceof SourcePreviewInterface && $item->getSourcePlugin()->getPreviewUrl($item)) {
+      $actions['preview'] = [
+        '#type' => 'link',
+        '#title' => t('Preview'),
+        '#url' => $item->getSourcePlugin()->getPreviewUrl($item),
+        '#attributes' => [
+          'target' => '_blank',
+        ],
+      ];
+    }
     return $actions;
   }
 
@@ -190,11 +220,11 @@ class JobItemForm extends TmgmtFormBase {
    */
   private function getTranslatableFields(array $form) {
     $fields = [];
-    foreach ($form['review'] as $parent_key => $value) {
-      if (is_array($value)) {
-        foreach ($value as $key => $data) {
+    foreach (Element::children($form['review']) as $group_key) {
+      foreach (Element::children($form['review'][$group_key]) as $parent_key) {
+        foreach ($form['review'][$group_key][$parent_key] as $key => $data) {
           if (isset($data['translation'])) {
-            $fields[$key] = ['parent_key' => $parent_key, 'data' => $data];
+            $fields[$key] = ['parent_key' => $parent_key, 'group_key' => $group_key, 'data' => $data];
           }
         }
       }
@@ -225,6 +255,7 @@ class JobItemForm extends TmgmtFormBase {
   public function validateJobItem(array &$form, FormStateInterface $form_state) {
     foreach ($this->getTranslatableFields($form) as $key => $value) {
       $parent_key = $value['parent_key'];
+      $group_key = $value['group_key'];
       // If has HTML tags will be an array.
       if (isset($value['data']['translation']['value'])) {
         $label = $value['data']['translation']['value']['#value'];
@@ -235,8 +266,11 @@ class JobItemForm extends TmgmtFormBase {
 
       // Validate that is not empty.
       if (empty($label)) {
-        $form_state->setError($form['review'][$parent_key][$key]['translation'], $this->t('The field is empty.'));
+        $form_state->setError($form['review'][$group_key][$parent_key][$key]['translation'], $this->t('The field is empty.'));
         continue;
+      }
+      else {
+        drupal_set_message(t('Validation completed successfully.'));
       }
     }
   }
@@ -292,18 +326,20 @@ class JobItemForm extends TmgmtFormBase {
             '#origin' => 'local',
           );
         }
+        if ($data['#text'] == '' && $item->isActive() && $form_state->getTriggeringElement()['#value'] != '✓') {
+          $data = NULL;
+          continue;
+        }
 
-        $item->addTranslatedData($data, $key);
+        $data_service = \Drupal::service('tmgmt.data');
+        $current_data_status = $item->getData($data_service->ensureArrayKey($key))['#status'];
+
+        $item->addTranslatedData($data, $key, $current_data_status);
       }
     }
     // Check if the user clicked on 'Accept', 'Submit' or 'Reject'.
     if (!empty($form['actions']['accept']) && $form_state->getTriggeringElement()['#value'] == $form['actions']['accept']['#value']) {
       $item->acceptTranslation();
-      // Check if the item could be saved and accepted successfully and redirect
-      // to the job item view if that is the case.
-      if ($item->isAccepted()) {
-        $form_state->setRedirectUrl($item->getJob()->urlInfo());
-      }
       // Print all messages that have been saved while accepting the reviewed
       // translation.
       foreach ($item->getMessagesSince() as $message) {
@@ -316,213 +352,176 @@ class JobItemForm extends TmgmtFormBase {
         }
       }
     }
-    if ($form_state->getTriggeringElement()['#value'] == $form['actions']['save']['#value']) {
-      drupal_set_message(t('The translation for <a href=:job>@job_title</a> has been saved successfully.', [
-        ':job' => $item->getSourceUrl()->toString(),
-        '@job_title' => $item->label()
-      ]));
+    if ($form_state->getTriggeringElement()['#value'] == $form['actions']['save']['#value'] && isset($data)) {
+      if ($item->getSourceUrl()) {
+        $message = t('The translation for <a href=:job>@job_title</a> has been saved successfully.', [
+          ':job' => $item->getSourceUrl()->toString(),
+          '@job_title' => $item->label(),
+        ]);
+      }
+      else {
+        $message = t('The translation has been saved successfully.');
+      }
+      drupal_set_message($message);
     }
     $item->save();
+    $item->getJob()->isContinuous() ? $form_state->setRedirect('entity.tmgmt_job_item.canonical', ['tmgmt_job_item' => $item->id()]) : $form_state->setRedirectUrl($item->getJob()->urlInfo());
   }
 
   /**
-   * Build form elements for the review form using flatened data items.
+   * Build form elements for the review form using flattened data items.
    *
    * @todo Mention in the api documentation that the char '|' is not allowed in
    * field names.
    *
-   * @param array $form_state
-   *   Drupal form form_state object.
-   * @param $data
-   *   Flatened array of translation data items.
-   * @param $job_item
-   *   The job item related to this data.
-   * @param $zebra
-   *   String containing either odd or even. This is used to style the each
-   *   translation item with alternating colors.
-   * @param $parent_key
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The current state of the form.
+   * @param array $data
+   *   Flattened array of translation data items.
+   * @param string $parent_key
    *   The key for $data.
+   *
+   * @return array|NULL
+   *   Render array with the form element, or NULL if the text is not set.
    */
-  function reviewFormElement(FormStateInterface $form_state, $data, JobItemInterface $job_item, &$zebra, $parent_key) {
-    $flip = array(
-      'even' => 'odd',
-      'odd' => 'even',
-    );
-    $form = array(
-      '#theme' => 'tmgmt_translator_review_form',
-      '#ajaxid' => tmgmt_review_form_element_ajaxid($parent_key),
-    );
+  function reviewFormElement(FormStateInterface $form_state, $data, $parent_key) {
+    $review_element = NULL;
 
     foreach (Element::children($data) as $key) {
-      // The char sequence '][' confuses the form API so we need to replace it.
-      $target_key = str_replace('][', '|', $key);
-      if (isset($data[$key]['#text']) && \Drupal::service('tmgmt.data')->filterData($data[$key])) {
-        $zebra = $flip[$zebra];
-        $form[$target_key] = array(
+      $data_item = $data[$key];
+      if (isset($data_item['#text']) && \Drupal::service('tmgmt.data')->filterData($data_item)) {
+        // The char sequence '][' confuses the form API so we need to replace
+        // it when using it for the form field name.
+        $field_name = str_replace('][', '|', $key);
+
+        // Ensure that the review form structure is initialized.
+        $review_element['#theme'] = 'tmgmt_data_items_form';
+        $review_element['#ajaxid'] = $ajax_id = tmgmt_review_form_element_ajaxid($parent_key);
+        $review_element['#top_label'] = array_shift($data_item['#parent_label']);
+        $leave_label = array_pop($data_item['#parent_label']);
+
+        // Data items are grouped based on their key hierarchy, calculate the
+        // group key and ensure that the group is initialized.
+        $group_name = substr($field_name, 0, strrpos($field_name, '|'));
+        if (empty($group_name)) {
+          $group_name = '_none';
+        }
+        if (!isset($review_element[$group_name])) {
+          $review_element[$group_name] = [
+            '#group_label' => $data_item['#parent_label'],
+          ];
+        }
+
+        // Initialize the form element for the given data item and make it
+        // available as $element.
+        $review_element[$group_name][$field_name] = array(
           '#tree' => TRUE,
-          '#theme' => 'tmgmt_translator_review_form_element',
-          '#parent_label' => $data[$key]['#parent_label'],
-          '#zebra' => $zebra,
         );
-        $form[$target_key]['status'] = array(
-          '#theme' => 'tmgmt_translator_review_form_element_status',
-          '#value' => $job_item->isAccepted() ? TMGMT_DATA_ITEM_STATE_ACCEPTED : $data[$key]['#status'],
-        );
-        $form[$target_key]['actions'] = array(
+        $item_element = &$review_element[$group_name][$field_name];
+
+        $item_element['label']['#markup'] = $leave_label;
+        $item_element['status'] = $this->buildStatusRenderArray($this->entity->isAccepted() ? TMGMT_DATA_ITEM_STATE_ACCEPTED : $data_item['#status']);
+        $item_element['actions'] = array(
           '#type' => 'container',
         );
-        if (!$job_item->isAccepted()) {
-          if ($data[$key]['#status'] != TMGMT_DATA_ITEM_STATE_REVIEWED) {
-            $form[$target_key]['actions']['reviewed'] = array(
-              '#type' => 'submit',
-              // Unicode character &#x2713 CHECK MARK
-              '#value' => '✓',
-              '#attributes' => array('title' => t('Reviewed')),
-              '#name' => 'reviewed-' . $target_key,
-              '#submit' => array('tmgmt_translation_review_form_update_state'),
-              '#ajax' => array(
-                'callback' => array($this, 'ajaxReviewForm'),
-                'wrapper' => $form['#ajaxid'],
-              ),
-            );
-          }
-          else {
-            $form[$target_key]['actions']['unreviewed'] = array(
-              '#type' => 'submit',
-              // Unicode character &#x2713 CHECK MARK
-              '#value' => '✓',
-              '#attributes' => array('title' => t('Not reviewed'), 'class' => array('unreviewed')),
-              '#name' => 'unreviewed-' . $target_key,
-              '#submit' => array('tmgmt_translation_review_form_update_state'),
-              '#ajax' => array(
-                'callback' => array($this, 'ajaxReviewForm'),
-                'wrapper' => $form['#ajaxid'],
-              ),
-            );
-          }
-          if ($job_item->hasTranslator() && $job_item->getTranslatorPlugin() instanceof TranslatorRejectDataInterface && $data[$key]['#status'] != TMGMT_DATA_ITEM_STATE_PENDING) {
-            $form[$target_key]['actions']['reject'] = array(
-              '#type' => 'submit',
-              // Unicode character &#x2717 BALLOT X
-              '#value' => '✗',
-              '#attributes' => array('title' => t('Reject')),
-              '#name' => 'reject-' . $target_key,
-              '#submit' => array('tmgmt_translation_review_form_update_state'),
-            );
-          }
+        $item_element['below_actions'] = [
+          '#type' => 'container',
+        ];
 
-          if (!empty($data[$key]['#translation']['#text_revisions'])) {
-            $form[$target_key]['actions']['revert'] = array(
-              '#type' => 'submit',
-              // Unicode character U+21B6 ANTICLOCKWISE TOP SEMICIRCLE ARROW
-              '#value' => '↶',
-              '#attributes' => array('title' => t('Revert to previous revision'), 'class' => array('reset-above')),
-              '#name' => 'revert-' . $target_key,
-              '#data_item_key' => $key,
-              '#submit' => array('tmgmt_translation_review_form_revert'),
-              '#ajax' => array(
-                'callback' => array($this, 'ajaxReviewForm'),
-                'wrapper' => $form['#ajaxid'],
-              ),
-            );
-            $form[$target_key]['actions']['unreviewed']['#attributes'] = array('class' => array('reviewed-below'));
-            $form[$target_key]['actions']['reviewed']['#attributes'] = array('class' => array('reviewed-below'));
+        // Check if the field has a text format attached and check access.
+        if (!empty($data_item['#format'])) {
+          $format_id = $data_item['#format'];
+          /** @var \Drupal\filter\Entity\FilterFormat $format */
+          $format = FilterFormat::load($format_id);
+
+          if (!$format || !$format->access('use')) {
+            $item_element['actions']['#access'] = FALSE;
+            $form_state->set('accept_item', FALSE);
           }
         }
-        if (!empty($data[$key]['#translation']['#text_revisions'])) {
-          $revisions = array();
+        $item_element['actions'] += $this->buildActions($data_item, $key, $field_name, $ajax_id);
 
-          foreach ($data[$key]['#translation']['#text_revisions'] as $revision) {
-            $revisions[] = t('Origin: %origin, Created: %created</br>%text', array(
-              '%origin' => $revision['#origin'],
-              '%created' => format_date($revision['#timestamp']),
-              '%text' => Xss::filter($revision['#text']),
-            ));
-          }
-          $form[$target_key]['below']['revisions_wrapper'] = array(
-            '#type' => 'details',
-            '#title' => t('Translation revisions'),
-            '#open' => TRUE,
-          );
-          $form[$target_key]['below']['revisions_wrapper']['revisions'] = array(
-            '#theme' => 'item_list',
-            '#items' => $revisions,
-          );
-        }
-
-        // Manage the height of the texteareas, depending on the lenght of the
+        // Manage the height of the textareas, depending on the length of the
         // description. The minimum number of rows is 3 and the maximum is 15.
-        $rows = ceil(strlen($data[$key]['#text']) / 100);
-        if ($rows < 3) {
-          $rows = 3;
-        } elseif ($rows > 15) {
-          $rows = 15;
-        }
-        if (!empty($data[$key]['#format']) && \Drupal::config('tmgmt.settings')->get('respect_text_format') == '1') {
-          $form[$target_key]['translation'] = array(
-            '#type' => 'text_format',
-            '#default_value' => isset($data[$key]['#translation']['#text']) ? $data[$key]['#translation']['#text'] : NULL,
-            '#title' => t('Translation'),
-            '#disabled' => $job_item->isAccepted(),
-            '#rows' => $rows,
-            '#allowed_formats' => array($data[$key]['#format']),
-          );
-        }
-        else {
-          $form[$target_key]['translation'] = array(
-            '#type' => 'textarea',
-            '#default_value' => isset($data[$key]['#translation']['#text']) ? $data[$key]['#translation']['#text'] : NULL,
-            '#title' => t('Translation'),
-            '#disabled' => $job_item->isAccepted(),
-            '#rows' => $rows,
-          );
-          if (!empty($data[$key]['#max_length'])) {
-            $form[$target_key]['translation']['#max_length'] = $data[$key]['#max_length'];
-            $form[$target_key]['translation']['#element_validate'] = ['::validateMaxLength'];
-          }
+        $rows = ceil(strlen($data_item['#text']) / 100);
+        $rows = min($rows, 15);
+        $rows = max($rows, 3);
+
+        // Build source and translation areas.
+        $item_element = $this->buildSource($item_element, $data_item, $rows, $form_state);
+        $item_element = $this->buildTranslation($item_element, $data_item, $rows, $form_state);
+
+        $item_element = $this->buildChangedSource($item_element, $form_state, $field_name, $key, $ajax_id);
+
+        if (isset($form_state->get('validation_messages')[$field_name])) {
+          $item_element['below']['validation'] = [
+            '#type' => 'container',
+            '#attributes' => ['class' => ['tmgmt_validation_message', 'messages', 'messages--warning']],
+            'message' => [
+              '#markup' => Html::escape($form_state->get('validation_messages')[$field_name]),
+            ],
+          ];
         }
 
-        if (!empty($data[$key]['#format']) && \Drupal::config('tmgmt.settings')->get('respect_text_format') == '1') {
-          $form[$target_key]['source'] = array(
-            '#type' => 'text_format',
-            '#default_value' => $data[$key]['#text'],
-            '#title' => t('Source'),
-            '#disabled' => TRUE,
-            '#rows' => $rows,
-            '#allowed_formats' => array($data[$key]['#format']),
-          );
-        }
-        else {
-          $form[$target_key]['source'] = array(
-            '#type' => 'textarea',
-            '#default_value' => $data[$key]['#text'],
-            '#title' => t('Source'),
-            '#disabled' => TRUE,
-            '#rows' => $rows,
-          );
-        }
-
-        if(isset($form_state->get('validation_messages')[$target_key])) {
-          $form[$target_key]['validation_message'] = array(
-            '#title' => t('Validation message'),
-            '#type' => 'item',
-            '#value' =>  htmlspecialchars($form_state->get('validation_messages')[$target_key]),
-          );
-        }
-
-        // Give the translator ui controller a chance to affect the data item element.
-        if ($job_item->hasTranslator()) {
-          $form[$target_key] = \Drupal::service('plugin.manager.tmgmt.translator')
-            ->createUIInstance($job_item->getTranslator()->getPluginId())
-            ->reviewDataItemElement($form[$target_key], $form_state, $key, $parent_key, $data[$key], $job_item);
+        // Give the translator UI controller a chance to affect the data item element.
+        if ($this->entity->hasTranslator()) {
+          $item_element = \Drupal::service('plugin.manager.tmgmt.translator')
+            ->createUIInstance($this->entity->getTranslator()->getPluginId())
+            ->reviewDataItemElement($item_element, $form_state, $key, $parent_key, $data_item, $this->entity);
           // Give the source ui controller a chance to affect the data item element.
-          $form[$target_key] = \Drupal::service('plugin.manager.tmgmt.source')
-            ->createUIInstance($job_item->getPlugin())
-            ->reviewDataItemElement($form[$target_key], $form_state, $key, $parent_key, $data[$key], $job_item);
+          $item_element = \Drupal::service('plugin.manager.tmgmt.source')
+            ->createUIInstance($this->entity->getPlugin())
+            ->reviewDataItemElement($item_element, $form_state, $key, $parent_key, $data_item, $this->entity);
         }
       }
     }
-    return $form;
+    return $review_element;
+  }
+
+  /**
+   * Builds the render array for the status icon.
+   *
+   * @param int $status
+   *   Data item status.
+   *
+   * @return array
+   *   The render array for the status icon.
+   */
+  protected function buildStatusRenderArray($status) {
+    $classes = array();
+    $classes[] = 'tmgmt-ui-icon';
+    // Icon size 32px square.
+    $classes[] = 'tmgmt-ui-icon-32';
+    switch ($status) {
+      case TMGMT_DATA_ITEM_STATE_ACCEPTED:
+        $title = t('Accepted');
+        $icon = 'core/misc/icons/73b355/check.svg';
+        break;
+      case TMGMT_DATA_ITEM_STATE_REVIEWED:
+        $title = t('Reviewed');
+        $icon = drupal_get_path('module', 'tmgmt') . '/icons/gray-check.svg';
+        break;
+      case TMGMT_DATA_ITEM_STATE_TRANSLATED:
+        $title = t('Translated');
+        $icon = drupal_get_path('module', 'tmgmt') . '/icons/ready.svg';
+        break;
+      case TMGMT_DATA_ITEM_STATE_PENDING:
+      default:
+        $title = t('Pending');
+        $icon = drupal_get_path('module', 'tmgmt') . '/icons/hourglass.svg';
+        break;
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => $classes],
+      'icon' => [
+        '#theme' => 'image',
+        '#uri' => $icon,
+        '#title' => $title,
+        '#alt' => $title,
+      ],
+    ];
   }
 
   /**
@@ -554,6 +553,9 @@ class JobItemForm extends TmgmtFormBase {
     }
     if($field_count > 0){
       drupal_set_message(t('HTML tag validation failed for @count field(s).', array('@count' => $field_count)), 'error');
+    }
+    else {
+      drupal_set_message(t('Validation completed successfully.'));
     }
     $form_state->set('validation_messages', $validation_messages);
     $request = \Drupal::request();
@@ -639,6 +641,398 @@ class JobItemForm extends TmgmtFormBase {
       }
     }
     return $counted_tags;
+  }
+
+  /**
+   * Detect source changes and persist on $form_state.
+   *
+   * @param array $data
+   *   The data items.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   */
+  public function trackChangedSource(array $data, FormStateInterface $form_state) {
+    $item = $this->entity;
+    $source_changed = [];
+    $source_removed = [];
+    foreach ($data as $key => $value) {
+      if (is_array($value) && isset($value['#translate']) && $value['#translate']) {
+        $key_array = \Drupal::service('tmgmt.data')->ensureArrayKey($key);
+        try {
+          $new_data = \Drupal::service('tmgmt.data')->flatten($item->getSourceData());
+        }
+        catch (TMGMTException $e) {
+          drupal_set_message(t('The source does not exist any more.'), 'error');
+          return;
+        }
+        $current_data = $item->getData($key_array);
+        if (!isset($new_data[$key])) {
+          $source_changed[$key] = t('This data item has been removed from the source.');
+          $source_removed[$key] = TRUE;
+        }
+        elseif ($current_data['#text'] != $new_data[$key]['#text']) {
+          $source_changed[$key] = t('The source has changed.');
+        }
+      }
+    }
+    $form_state->set('source_changed', $source_changed);
+    $form_state->set('source_removed', $source_removed);
+  }
+
+  /**
+   * Submit handler to show the diff table of the source.
+   */
+  public function showDiff(array $form, FormStateInterface $form_state) {
+    $key = $form_state->getTriggeringElement()['#data_item_key'];
+    $form_state->set('show_diff:' . $key, TRUE);
+    $form_state->setRebuild();
+  }
+
+  /**
+   * Submit handler to resolve the diff updating the Job Item source.
+   */
+  public function resolveDiff(array $form, FormStateInterface $form_state) {
+    $item = $this->entity;
+    $key = $form_state->getTriggeringElement()['#data_item_key'];
+    $array_key = \Drupal::service('tmgmt.data')->ensureArrayKey($key);
+    $first_key = reset($array_key);
+    $source_data = $item->getSourceData();
+    $new_data = \Drupal::service('tmgmt.data')->flatten($source_data)[$key];
+    $item->updateData($key, $new_data);
+    if (isset($source_data[$first_key]['#label'])) {
+      $item->addMessage('The conflict in the data item source "@data_item" has been resolved.', ['@data_item' => $source_data[$first_key]['#label']]);
+    }
+    else {
+      $item->addMessage('The conflict in the data item source has been resolved.');
+    }
+    $item->save();
+    $form_state->set('show_diff:' . $key, FALSE);
+    $form_state->setRebuild();
+  }
+
+  /**
+   * Builds the actions for a data item.
+   *
+   * @param array $data_item
+   *   The data item.
+   * @param string $key
+   *   The data item key for the given structure.
+   * @param string $field_name
+   *   The name of the form element.
+   * @param string $ajax_id
+   *   The ID used for ajax replacements.
+   *
+   * @return array
+   *   A list of action form elements.
+   */
+  protected function buildActions($data_item, $key, $field_name, $ajax_id) {
+    $actions = [];
+    if (!$this->entity->isAccepted()) {
+      if ($data_item['#status'] != TMGMT_DATA_ITEM_STATE_REVIEWED) {
+        $actions['reviewed'] = array(
+          '#type' => 'submit',
+          // Unicode character &#x2713 CHECK MARK
+          '#value' => '✓',
+          '#attributes' => array('title' => t('Reviewed')),
+          '#name' => 'reviewed-' . $field_name,
+          '#submit' => [
+            '::save',
+            'tmgmt_translation_review_form_update_state',
+          ],
+          '#limit_validation_errors' => array(
+            array($ajax_id),
+            array($field_name)
+          ),
+          '#ajax' => array(
+            'callback' => array($this, 'ajaxReviewForm'),
+            'wrapper' => $ajax_id,
+          ),
+        );
+      }
+      else {
+        $actions['unreviewed'] = array(
+          '#type' => 'submit',
+          // Unicode character &#x2713 CHECK MARK
+          '#value' => '✓',
+          '#attributes' => array(
+            'title' => t('Not reviewed'),
+            'class' => array('unreviewed')
+          ),
+          '#name' => 'unreviewed-' . $field_name,
+          '#submit' => [
+            '::save',
+            'tmgmt_translation_review_form_update_state',
+          ],
+          '#limit_validation_errors' => array(
+            array($ajax_id),
+            array($field_name)
+          ),
+          '#ajax' => array(
+            'callback' => array($this, 'ajaxReviewForm'),
+            'wrapper' => $ajax_id,
+          ),
+        );
+      }
+      if ($this->entity->hasTranslator() && $this->entity->getTranslatorPlugin() instanceof TranslatorRejectDataInterface && $data_item['#status'] != TMGMT_DATA_ITEM_STATE_PENDING) {
+        $actions['reject'] = array(
+          '#type' => 'submit',
+          // Unicode character &#x2717 BALLOT X
+          '#value' => '✗',
+          '#attributes' => array('title' => t('Reject')),
+          '#name' => 'reject-' . $field_name,
+          '#submit' => [
+            '::save',
+            'tmgmt_translation_review_form_update_state',
+          ],
+        );
+      }
+
+      if (!empty($data_item['#translation']['#text_revisions'])) {
+        $actions['revert'] = array(
+          '#type' => 'submit',
+          // Unicode character U+21B6 ANTICLOCKWISE TOP SEMICIRCLE ARROW
+          '#value' => '↶',
+          '#attributes' => array(
+            'title' => t('Revert to previous revision'),
+            'class' => array('reset-above')
+          ),
+          '#name' => 'revert-' . $field_name,
+          '#data_item_key' => $key,
+          '#submit' => array('tmgmt_translation_review_form_revert'),
+          '#ajax' => array(
+            'callback' => array($this, 'ajaxReviewForm'),
+            'wrapper' => $ajax_id,
+          ),
+        );
+        $actions['reviewed']['#attributes'] = array('class' => array('reviewed-below'));
+      }
+    }
+    return $actions;
+  }
+
+  /**
+   * Builds the notification and diff for source changes for a data item.
+   *
+   * @param array $item_element
+   *   The form element for the data item.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   * @param string $field_name
+   *   The name of the form element.
+   * @param string $key
+   *   The data item key for the given structure.
+   * @param string $ajax_id
+   *   The ID used for ajax replacements.
+   *
+   * @return array
+   *   The form element for the data item.
+   */
+  protected function buildChangedSource($item_element, FormStateInterface $form_state, $field_name, $key, $ajax_id) {
+    // Check for source changes and offer actions.
+    if (isset($form_state->get('source_changed')[$key])) {
+      // Show diff if requested.
+      if ($form_state->get('show_diff:' . $key)) {
+        $keys = \Drupal::service('tmgmt.data')->ensureArrayKey($field_name);
+
+        try {
+          $new_data = \Drupal::service('tmgmt.data')
+            ->flatten($this->entity->getSourceData());
+        } catch (TMGMTException $e) {
+          $new_data = [];
+        }
+
+        $current_data = $this->entity->getData($keys);
+
+        $diff_header = ['', t('Current text'), '', t('New text')];
+
+        $current_lines = explode("\n", $current_data['#text']);
+        $new_lines = explode("\n", isset($new_data[$key]) ? $new_data[$key]['#text'] : '');
+
+        $diff_formatter = new DiffFormatter($this->configFactory());
+        $diff = new Diff($current_lines, $new_lines);
+
+        $diff_rows = $diff_formatter->format($diff);
+        // Unset start block.
+        unset($diff_rows[0]);
+
+        $item_element['below']['source_changed']['diff'] = [
+          '#type' => 'table',
+          '#header' => $diff_header,
+          '#rows' => $diff_rows,
+          '#empty' => $this->t('No visible changes'),
+          '#attributes' => [
+            'class' => ['diff'],
+          ],
+        ];
+        $item_element['below']['source_changed']['#attached']['library'][] = 'system/diff';
+        $item_element['below_actions']['resolve-diff'] = [
+          '#type' => 'submit',
+          '#value' => t('Resolve'),
+          '#attributes' => ['title' => t('Apply the changes of the source.')],
+          '#name' => 'resolve-diff-' . $field_name,
+          '#data_item_key' => $key,
+          '#submit' => ['::resolveDiff'],
+          '#ajax' => [
+            'callback' => '::ajaxReviewForm',
+            'wrapper' => $ajax_id,
+          ],
+        ];
+      }
+      else {
+        $item_element['below']['source_changed'] = [
+          '#type' => 'container',
+          '#attributes' => [
+            'class' => [
+              'tmgmt_source_changed',
+              'messages',
+              'messages--warning'
+            ]
+          ]
+        ];
+
+        // Display changed message.
+        $item_element['below']['source_changed']['message'] = [
+          '#markup' => '<span>' . $form_state->get('source_changed')[$key] . '</span>',
+          '#attributes' => ['class' => ['tmgmt-review-message-inline']],
+        ];
+
+        if (!isset($form_state->get('source_removed')[$key])) {
+          // Offer diff action.
+          $item_element['below']['source_changed']['diff_button'] = [
+            '#type' => 'submit',
+            '#value' => t('Show change'),
+            '#name' => 'diff-button-' . $field_name,
+            '#data_item_key' => $key,
+            '#submit' => ['::showDiff'],
+            '#attributes' => ['class' => ['tmgmt-review-message-inline']],
+            '#ajax' => [
+              'callback' => '::ajaxReviewForm',
+              'wrapper' => $ajax_id,
+            ],
+          ];
+        }
+      }
+    }
+    return $item_element;
+  }
+
+  /**
+   * Builds the translation form element for a data item.
+   *
+   * @param array $item_element
+   *   The form element for the data item.
+   * @param int $rows
+   *   The number of rows that should be displayed.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return array
+   *   The form element for the data item.
+   */
+  protected function buildTranslation($item_element, $data_item, $rows, FormStateInterface $form_state) {
+    if (!empty($data_item['#format']) && $this->config('tmgmt.settings')->get('respect_text_format') && !$form_state->has('accept_item')) {
+      $item_element['translation'] = array(
+        '#type' => 'text_format',
+        '#default_value' => isset($data_item['#translation']['#text']) ? $data_item['#translation']['#text'] : NULL,
+        '#title' => t('Translation'),
+        '#disabled' => $this->entity->isAccepted(),
+        '#rows' => $rows,
+        '#allowed_formats' => array($data_item['#format']),
+      );
+    }
+    elseif ($form_state->has('accept_item')) {
+      $item_element['translation'] = array(
+        '#type' => 'textarea',
+        '#title' => t('Translation'),
+        '#value' => t('This field has been disabled because you do not have sufficient permissions to edit it. It is not possible to review or accept this job item.'),
+        '#disabled' => TRUE,
+        '#rows' => $rows,
+      );
+    }
+    else {
+      $item_element['translation'] = array(
+        '#type' => 'textarea',
+        '#default_value' => isset($data_item['#translation']['#text']) ? $data_item['#translation']['#text'] : NULL,
+        '#title' => t('Translation'),
+        '#disabled' => $this->entity->isAccepted(),
+        '#rows' => $rows,
+      );
+      if (!empty($data_item['#max_length'])) {
+        $item_element['translation']['#max_length'] = $data_item['#max_length'];
+        $item_element['translation']['#element_validate'] = ['::validateMaxLength'];
+      }
+    }
+
+
+    if (!empty($data_item['#translation']['#text_revisions'])) {
+      $revisions = array();
+
+      foreach ($data_item['#translation']['#text_revisions'] as $revision) {
+        $revisions[] = t('Origin: %origin, Created: %created<br />%text', array(
+          '%origin' => $revision['#origin'],
+          '%created' => format_date($revision['#timestamp']),
+          '%text' => Xss::filter($revision['#text']),
+        ));
+      }
+      $item_element['below']['revisions_wrapper'] = array(
+        '#type' => 'details',
+        '#title' => t('Translation revisions'),
+        '#open' => TRUE,
+      );
+      $item_element['below']['revisions_wrapper']['revisions'] = array(
+        '#theme' => 'item_list',
+        '#items' => $revisions,
+      );
+    }
+
+    return $item_element;
+  }
+
+  /**
+   * Builds the source form elements for a data item.
+   *
+   * @param array $item_element
+   *   The form element for the data item.
+   * @param array $data_item
+   *   The data item.
+   * @param int $rows
+   *   The number of rows that should be displayed.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return array
+   *   The form element for the data item.
+   */
+  protected function buildSource($item_element, $data_item, $rows, FormStateInterface $form_state) {
+    if (!empty($data_item['#format']) && $this->config('tmgmt.settings')->get('respect_text_format') && !$form_state->has('accept_item')) {
+      $item_element['source'] = array(
+        '#type' => 'text_format',
+        '#default_value' => $data_item['#text'],
+        '#title' => t('Source'),
+        '#disabled' => TRUE,
+        '#rows' => $rows,
+        '#allowed_formats' => array($data_item['#format']),
+      );
+    }
+    elseif ($form_state->has('accept_item')) {
+      $item_element['source'] = array(
+        '#type' => 'textarea',
+        '#title' => t('Source'),
+        '#value' => t('This field has been disabled because you do not have sufficient permissions to edit it. It is not possible to review or accept this job item.'),
+        '#disabled' => TRUE,
+        '#rows' => $rows,
+      );
+    }
+    else {
+      $item_element['source'] = array(
+        '#type' => 'textarea',
+        '#default_value' => $data_item['#text'],
+        '#title' => t('Source'),
+        '#disabled' => TRUE,
+        '#rows' => $rows,
+      );
+    }
+    return $item_element;
   }
 
 }

@@ -7,6 +7,7 @@
 
 namespace Drupal\tmgmt_file\Tests;
 
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\tmgmt\Entity\Job;
 use Drupal\tmgmt\Entity\Translator;
 use Drupal\tmgmt\JobInterface;
@@ -136,6 +137,77 @@ class FileTranslatorTest extends TMGMTTestBase {
     $job->requestTranslation();
     $targets = $this->getTransUnitsContent($job);
     $this->assertEqual(trim(html_entity_decode($targets['0']['source'])), $source_text);
+  }
+
+  /**
+   * Test the CDATA option for XLIFF export and import.
+   */
+  function testXLIFFCDATA() {
+    $translator = $this->createTranslator([
+      'plugin' => 'file',
+      'settings' => [
+        'export_format' => 'xlf',
+        'xliff_cdata' => TRUE,
+      ]
+    ]);
+
+    // Get the source text.
+    $source_text = trim(file_get_contents(drupal_get_path('module', 'tmgmt') . '/tests/testing_html/sample.html'));
+
+    // Create a new job.
+    $job = $this->createJob();
+    $job->translator = $translator->id();
+    $job->addItem('test_html_source', 'test', '1');
+    $job->requestTranslation();
+    $messages = $job->getMessages();
+    $message = reset($messages);
+
+    // Get XLIFF content.
+    $variables = $message->variables;
+    $download_url = $variables->{'@link'};
+    $this->assertFalse((bool) strpos('< a', $download_url));
+    $xliff = file_get_contents($download_url);
+
+    $dom = new \DOMDocument();
+    $dom->loadXML($xliff);
+    $this->assertTrue($dom->schemaValidate(drupal_get_path('module', 'tmgmt_file') . '/xliff-core-1.2-strict.xsd'));
+
+    // "Translate" items.
+    $xml = simplexml_import_dom($dom);
+    $translated_text = array();
+    foreach ($xml->file->body->children() as $group) {
+      foreach ($group->children() as $transunit) {
+        if ($transunit->getName() == 'trans-unit') {
+          // The target should be empty.
+          $this->assertEqual($transunit->target, '');
+
+          // Update translations using CDATA.
+          $node = dom_import_simplexml($transunit->target);
+          $owner = $node->ownerDocument;
+          $node->appendChild($owner->createCDATASection($xml->file['target-language'] . '_' . (string) $transunit->source));
+
+          // Store the text to allow assertions later on.
+          $translated_text[(string) $group['id']][(string) $transunit['id']] = (string) $transunit->target;
+        }
+      }
+    }
+
+    $translated_file = 'public://tmgmt_file/translated file.xlf';
+    $xml->asXML($translated_file);
+
+    // Import the file and check translation for the "dummy" item.
+    $edit = array(
+      'files[file]' => $translated_file,
+    );
+    $this->drupalPostForm($job->urlInfo(), $edit, t('Import'));
+
+    // Reset caches and reload job.
+    \Drupal::entityManager()->getStorage('tmgmt_job')->resetCache();
+    \Drupal::entityManager()->getStorage('tmgmt_job_item')->resetCache();
+    $job = Job::load($job->id());
+
+    $item_data = $job->getData(array(1, 'dummy', 'deep_nesting'));
+    $this->assertEqual(trim($item_data[1]['#translation']['#text']), str_replace($source_text, $xml->file['target-language'] . '_' . $source_text, $source_text));
   }
 
   /**
@@ -308,6 +380,8 @@ class FileTranslatorTest extends TMGMTTestBase {
         'files[file]' => $translated_file,
       );
     $this->drupalPostForm($job->urlInfo(), $edit, t('Import'));
+    $this->assertText(t('The translation of @job_item to German is finished and can now be reviewed.', ['@job_item' => $first_item->label()]));
+
     $this->clickLink(t('Review'));
     $this->drupalPostAjaxForm(NULL, NULL, array('reviewed-dummy|deep_nesting' => '✓'));
 
@@ -406,7 +480,7 @@ class FileTranslatorTest extends TMGMTTestBase {
     $this->drupalPostForm($job->urlInfo(), $edit, t('Import'));
 
     // Make sure the translations have been imported correctly.
-    $this->assertNoText(t('In progress'));
+    $this->assertNoRaw('title="In progress"');
     // @todo: Enable this assertion once new releases for views and entity
     // module are out.
     //$this->assertText(t('Needs review'));
@@ -433,7 +507,7 @@ class FileTranslatorTest extends TMGMTTestBase {
     // module are out.
     //$this->assertText(t('Accepted'));
     $this->assertText(t('Finished'));
-    $this->assertNoText(t('Needs review'));
+    $this->assertNoRaw('title="Needs review"');
   }
 
   /**
@@ -470,9 +544,9 @@ class FileTranslatorTest extends TMGMTTestBase {
    */
   protected function assertIntegrityCheck(JobInterface $job, $expected = TRUE) {
     $integrity_check_failed = FALSE;
-    /** @var MessageInterface $message */
+    /** @var \Drupal\tmgmt\MessageInterface $message */
     foreach ($job->getMessages() as $message) {
-      if ($message->getMessage() == t('Failed to validate semantic integrity of %key element. Please check also the HTML code of the element in the review process.', array('%key' => 'dummy][deep_nesting'))) {
+      if ($message->getMessage() == new TranslatableMarkup('Failed to validate semantic integrity of %key element. Please check also the HTML code of the element in the review process.', array('%key' => 'dummy][deep_nesting'))) {
         $integrity_check_failed = TRUE;
         break;
       }
@@ -485,4 +559,5 @@ class FileTranslatorTest extends TMGMTTestBase {
       $this->assertFalse($integrity_check_failed, 'The validation of semantic integrity must not fail.');
     }
   }
+
 }

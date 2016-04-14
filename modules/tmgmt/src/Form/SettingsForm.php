@@ -19,13 +19,13 @@ class SettingsForm extends ConfigFormBase {
    * {@inheritdoc}
    */
   public function getEditableConfigNames() {
-   return array('tmgmt.settings');
+    return array('tmgmt.settings');
   }
 
   /**
    * {@inheritdoc}
    */
-  public function getFormID() {
+  public function getFormId() {
     return 'tmgmt_settings_form';
   }
 
@@ -54,8 +54,44 @@ class SettingsForm extends ConfigFormBase {
       '#type' => 'select',
       '#title' => t('Purge finished jobs'),
       '#description' => t('If configured, translation jobs that have been marked as finished will be purged after a given time. The translations itself will not be deleted.'),
-      '#options' => array('_never' => t('Never'), '0' => t('Immediately'), '86400' => t('After 24 hours'), '604800' => t('After 7 days'), '2592000' => t('After 30 days'), '31536000' => t('After 365 days')),
+      '#options' => [
+        '_never' => t('Never'),
+        '0' => t('Immediately'),
+        '86400' => t('After 24 hours'),
+        '604800' => t('After 7 days'),
+        '2592000' => t('After 30 days'),
+        '31536000' => t('After 365 days'),
+      ],
       '#default_value' => $config->get('purge_finished'),
+    );
+    $form['security'] = array(
+      '#type' => 'details',
+      '#title' => t('Security settings'),
+      '#open' => TRUE,
+    );
+    $form['security']['tmgmt_anonymous_access'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Allow access to source for translators'),
+      '#description' => t('Enabling this will give translators and anyone with access to jobs access to view all content, including unpublished and other protected content.'),
+      '#default_value' => $config->get('anonymous_access'),
+    );
+    $form['performance']['tmgmt_submit_job_item_on_cron'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Submit continuous job items'),
+      '#description' => t('Enabling will force all continuous job items to be submitted on cron.'),
+      '#default_value' => $config->get('submit_job_item_on_cron'),
+    );
+    $form['performance']['job_items_cron_limit'] = array(
+      '#type' => 'number',
+      '#title' => t('Number of job items to process on cron'),
+      '#description' => t('The number of job items that should be processed in one cron run. Depending on the chosen translation provider, increasing the number of job items could make translation projects bigger and slower to process.'),
+      '#default_value' => $config->get('job_items_cron_limit'),
+      '#min' => 1,
+      '#states' => array(
+        'visible' => array(
+          ':input[name="tmgmt_submit_job_item_on_cron"]' => array('checked' => TRUE),
+        ),
+      ),
     );
     $form['plaintext'] = array(
       '#type' => 'details',
@@ -78,11 +114,13 @@ class SettingsForm extends ConfigFormBase {
     $this->config('tmgmt.settings')
       ->set('quick_checkout', $form_state->getValue('tmgmt_quick_checkout'))
       ->set('purge_finished', $form_state->getValue('tmgmt_purge_finished'))
+      ->set('anonymous_access', $form_state->getValue('tmgmt_anonymous_access'))
       ->set('respect_text_format', $form_state->getValue('respect_text_format'))
+      ->set('submit_job_item_on_cron', $form_state->getValue('tmgmt_submit_job_item_on_cron'))
+      ->set('job_items_cron_limit', $form_state->getValue('job_items_cron_limit'))
       ->save();
 
     parent::submitForm($form, $form_state);
   }
 
 }
-

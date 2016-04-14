@@ -8,7 +8,7 @@
 namespace Drupal\tmgmt_config\Tests;
 
 use Drupal\Core\Url;
-use Drupal\tmgmt\Entity\Translator;
+use Drupal\tmgmt\Entity\Job;
 use Drupal\tmgmt\Tests\EntityTestBase;
 use Drupal\views\Entity\View;
 
@@ -70,7 +70,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     $this->assertText('Article content type (English to German, Unprocessed)');
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/structure/types/manage/article/translate');
@@ -102,7 +102,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     // Verify that we are on the checkout page.
     $this->assertText(t('One job needs to be checked out.'));
     $this->assertText('Article content type (English to Spanish, Unprocessed)');
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/structure/types/manage/article/translate');
@@ -129,7 +129,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     $this->drupalGet('admin/structure/types/manage/article/translate');
 
     // Verify that the pending translation is shown.
-    $this->clickLink(t('In progress'));
+    $this->clickLink(t('Inactive'));
 
     // Try to save, should fail because the job has no translator assigned.
     $edit = array(
@@ -166,9 +166,9 @@ class ConfigSourceUiTest extends EntityTestBase {
 
     // Submit all jobs.
     $this->assertText('Article content type (English to German, Unprocessed)');
-    $this->drupalPostForm(NULL, array(), t('Submit to translator and continue'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider and continue'));
     $this->assertText('Article content type (English to Spanish, Unprocessed)');
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the translate tab.
     $this->assertUrl('admin/structure/types/manage/article/translate');
@@ -214,7 +214,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     $this->assertText('Content view (English to German, Unprocessed)');
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/structure/views/view/content/translate');
@@ -243,7 +243,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     // Verify that we are on the checkout page.
     $this->assertText(t('One job needs to be checked out.'));
     $this->assertText('Content view (English to Spanish, Unprocessed)');
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/structure/views/view/content/translate');
@@ -276,6 +276,19 @@ class ConfigSourceUiTest extends EntityTestBase {
   function testFieldConfigTranslateTabSingleCheckout() {
     $this->loginAsAdmin(array('translate configuration'));
 
+    // Add a continuous job.
+    $job = $this->createJob('en', 'de', 1, ['job_type' => Job::TYPE_CONTINUOUS]);
+    $job->save();
+
+    // Go to sources, field configuration list.
+    $this->drupalGet('admin/tmgmt/sources/config/field_config');
+    $this->assertText(t('Configuration ID'));
+    $this->assertText('field.field.node.article.body');
+
+    // Assert that we cannot add config entities into continuous jobs.
+    $this->assertNoText(t('Check for continuous jobs'));
+    $this->assertNoField('add_all_to_continuous_jobs');
+
     // Go to the translate tab.
     $this->drupalGet('admin/structure/types/manage/article/fields/node.article.body/translate');
 
@@ -285,7 +298,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     // Verify that we are on the checkout page.
     $this->assertResponse(200);
     $this->assertText(t('One job needs to be checked out.'));
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Verify that the pending translation is shown.
     $this->clickLink(t('Needs review'));
@@ -336,7 +349,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     $this->assertText('System information (English to German, Unprocessed)');
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/config/system/site-information/translate');
@@ -368,7 +381,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     // Verify that we are on the checkout page.
     $this->assertText(t('One job needs to be checked out.'));
     $this->assertText('System information (English to Spanish, Unprocessed)');
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/config/system/site-information/translate');
@@ -390,7 +403,7 @@ class ConfigSourceUiTest extends EntityTestBase {
     $this->drupalPostForm(NULL, ['languages[de]' => TRUE], t('Request translation'));
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
     $this->clickLink(t('Needs review'));
     $this->drupalPostForm(NULL, array('user__settings|anonymous[translation]' => 'de_Druplicon'), t('Validate HTML tags'));
     $this->assertText('de_Druplicon');

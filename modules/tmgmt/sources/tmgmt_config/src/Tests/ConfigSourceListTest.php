@@ -66,7 +66,7 @@ class ConfigSourceListTest extends EntityTestBase {
     $this->assertText(t('Article content type (English to ?, Unprocessed)'));
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/tmgmt/sources/config/node_type');
@@ -85,15 +85,16 @@ class ConfigSourceListTest extends EntityTestBase {
     // This is still one job, unlike when selecting more languages.
     $this->assertText(t('One job needs to be checked out.'));
     $this->assertText(t('Article content type and 1 more (English to ?, Unprocessed)'));
+    $this->assertText(t('1 item conflict with pending item and will be dropped on submission.'));
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/tmgmt/sources/config/node_type');
 
     $this->assertText(t('Test translation created.'));
-    $this->assertText(t('The translation of Article content type to German is finished and can now be reviewed.'));
+    $this->assertNoText(t('The translation of Article content type to German is finished and can now be reviewed.'));
     $this->assertText(t('The translation of Page content type to German is finished and can now be reviewed.'));
   }
 
@@ -115,7 +116,7 @@ class ConfigSourceListTest extends EntityTestBase {
     $this->assertText(t('Archive view (English to ?, Unprocessed)'));
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/tmgmt/sources/config/view');
@@ -136,15 +137,16 @@ class ConfigSourceListTest extends EntityTestBase {
     // Verify that we are on the translate tab.
     $this->assertText(t('One job needs to be checked out.'));
     $this->assertText(t('Archive view and 3 more (English to ?, Unprocessed)'));
+    $this->assertText(t('1 item conflict with pending item and will be dropped on submission.'));
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/tmgmt/sources/config/view');
 
     $this->assertText(t('Test translation created.'));
-    $this->assertText(t('The translation of Archive view to German is finished and can now be reviewed.'));
+    $this->assertNoText(t('The translation of Archive view to German is finished and can now be reviewed.'));
     $this->assertText(t('The translation of Recent content view to German is finished and can now be reviewed.'));
     $this->assertText(t('The translation of Content view to German is finished and can now be reviewed.'));
     $this->assertText(t('The translation of Job overview view to German is finished and can now be reviewed.'));
@@ -245,12 +247,12 @@ class ConfigSourceListTest extends EntityTestBase {
     $this->assertText('System information (English to ?, Unprocessed)');
 
     // Submit.
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/tmgmt/sources/config/_simple_config');
 
-    $overview_url = Url::fromRoute('tmgmt.source_overview', array('plugin' => 'config', 'item_type' => '_simple_config'))->getInternalPath();
+    $overview_url = Url::fromRoute('tmgmt.source_overview', array('plugin' => 'config', 'item_type' => '_simple_config'))->toString();
 
     // Translated languages should now be listed as Needs review.
     $this->assertRaw(SafeMarkup::format('href=":url" title="Active job item: Needs review"', array(':url' => JobItem::load(1)->urlInfo()->setOption('query',
@@ -274,7 +276,7 @@ class ConfigSourceListTest extends EntityTestBase {
     // Verify that we are on the checkout page.
     $this->assertText(t('One job needs to be checked out.'));
     $this->assertText('Account settings (English to ?, Unprocessed)');
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/tmgmt/sources/config/_simple_config');
@@ -339,7 +341,7 @@ class ConfigSourceListTest extends EntityTestBase {
     // Test submission.
     $this->drupalPostForm(NULL, array('items[field.field.node.article.body]' => TRUE), t('Request translation'));
     $this->assertText(t('One job needs to be checked out.'));
-    $this->drupalPostForm(NULL, array(), t('Submit to translator'));
+    $this->drupalPostForm(NULL, array(), t('Submit to provider'));
 
     // Make sure that we're back on the originally defined destination URL.
     $this->assertUrl('admin/tmgmt/sources/config/field_config');

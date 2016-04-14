@@ -116,7 +116,10 @@ class Xliff extends \XMLWriter implements FormatInterface {
     $this->startElement('source');
     $this->writeAttribute('xml:lang', $this->job->getRemoteSourceLanguage());
 
-    if ($job->getSetting('xliff_processing')) {
+    if ($job->getSetting('xliff_cdata')) {
+      $this->writeCdata(trim($element['#text']));
+    }
+    elseif ($job->getSetting('xliff_processing')) {
       $this->writeRaw($this->processForExport($element['#text'], $key_array));
     }
     else {
@@ -146,7 +149,7 @@ class Xliff extends \XMLWriter implements FormatInterface {
   /**
    * {@inheritdoc}
    */
-  public function export(JobInterface $job) {
+  public function export(JobInterface $job, $conditions = array()) {
 
     $this->job = $job;
 
@@ -189,7 +192,7 @@ class Xliff extends \XMLWriter implements FormatInterface {
 
     $this->startElement('body');
 
-    foreach ($job->getItems() as $item) {
+    foreach ($job->getItems($conditions) as $item) {
       $this->addItem($item);
     }
 
@@ -204,8 +207,10 @@ class Xliff extends \XMLWriter implements FormatInterface {
   /**
    * {@inheritdoc}
    */
-  public function import($imported_file) {
-    $this->getImportedXML($imported_file);
+  public function import($imported_file, $is_file = TRUE) {
+    if ($this->getImportedXML($imported_file, $is_file) === FALSE) {
+      return FALSE;
+    }
     $phase = $this->importedXML->xpath("//xliff:phase[@phase-name='extraction']");
     $phase = reset($phase);
     $job = Job::load((string) $phase['job-id']);
@@ -215,14 +220,18 @@ class Xliff extends \XMLWriter implements FormatInterface {
   /**
    * {@inheritdoc}
    */
-  public function validateImport($imported_file) {
+  public function validateImport($imported_file, $is_file = TRUE) {
     // Validates imported XLIFF file.
     // Checks:
     // - Job ID
     // - Target ans source languages
     // - Content integrity.
 
-    $xml = $this->getImportedXML($imported_file);
+    $xml = $this->getImportedXML($imported_file, $is_file);
+    if ($xml === FALSE) {
+      drupal_set_message(t('The imported file is not a valid XML.'), 'error');
+      return FALSE;
+    }
     // Check if our phase information is there.
     $phase = $xml->xpath("//xliff:phase[@phase-name='extraction']");
     if ($phase) {
@@ -304,13 +313,31 @@ class Xliff extends \XMLWriter implements FormatInterface {
     return $job;
   }
 
-  protected function getImportedXML($imported_file) {
+  /**
+   * Returns the simple XMLElement object.
+   *
+   * @param string $imported_file
+   *   Path to a file or an XML string to import.
+   * @param bool $is_file
+   *   (optional) Whether $imported_file is the path to a file or not.
+   *
+   * @return bool|\SimpleXMLElement
+   *   The parsed SimpleXMLElement object. FALSE in case of failed parsing.
+   */
+  protected function getImportedXML($imported_file, $is_file = TRUE) {
     if (empty($this->importedXML)) {
       // It is not possible to load the file directly with simplexml as it gets
       // url encoded due to the temporary://. This is a PHP bug, see
       // https://bugs.php.net/bug.php?id=61469
-      $xml_string = file_get_contents($imported_file);
-      $this->importedXML = simplexml_load_string($xml_string);
+      if ($is_file) {
+        $imported_file = file_get_contents($imported_file);
+      }
+
+      $this->importedXML = simplexml_load_string($imported_file);
+      if ($this->importedXML === FALSE) {
+        drupal_set_message(t('The imported file is not a valid XML.'), 'error');
+        return FALSE;
+      }
       // Register the XLIFF namespace, required for xpath.
       $this->importedXML->registerXPathNamespace('xliff', 'urn:oasis:names:tc:xliff:document:1.2');
     }
@@ -326,6 +353,11 @@ class Xliff extends \XMLWriter implements FormatInterface {
     if (empty($this->importedTransUnits)) {
       $reader = new \XMLReader();
       foreach ($this->importedXML->xpath('//xliff:trans-unit') as $unit) {
+        if ($job->getSetting('xliff_cdata')) {
+          $this->importedTransUnits[(string) $unit['id']]['#text'] = (string) $unit->target;
+          continue;
+        }
+
         $reader->XML($unit->target->asXML());
         $reader->read();
         $this->importedTransUnits[(string) $unit['id']]['#text'] =

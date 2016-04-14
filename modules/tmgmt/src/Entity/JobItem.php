@@ -1,25 +1,25 @@
 <?php
-
 /**
  * @file
- * Contains Drupal\tmgmt\Plugin\Core\Entity\JobItem.
+ * Contains \Drupal\tmgmt\Entity\JobItem.
  */
 
 namespace Drupal\tmgmt\Entity;
 
 use Drupal\Component\Plugin\Exception\PluginException;
+use Drupal\Component\Plugin\Exception\PluginNotFoundException;
 use Drupal\Component\Utility\NestedArray;
 use Drupal\Component\Utility\Unicode;
+use Drupal\Core\Cache\Cache;
 use Drupal\Core\Entity\ContentEntityBase;
 use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\Core\Entity\EntityTypeInterface;
+use Drupal\Core\Entity\Exception\UndefinedLinkTemplateException;
 use Drupal\Core\Field\BaseFieldDefinition;
 use Drupal\Core\Language\Language;
-use Drupal\Core\Url;
 use Drupal\tmgmt\JobItemInterface;
 use Drupal\tmgmt\TMGMTException;
 use Drupal\Core\Render\Element;
-use Drupal\Component\Utility\SafeMarkup;
 
 /**
  * Entity class for the tmgmt_job_item entity.
@@ -32,6 +32,7 @@ use Drupal\Component\Utility\SafeMarkup;
  *     "access" = "Drupal\tmgmt\Entity\Controller\JobItemAccessControlHandler",
  *     "form" = {
  *       "edit" = "Drupal\tmgmt\Form\JobItemForm",
+ *       "abort" = "Drupal\tmgmt\Form\JobItemAbortForm",
  *       "delete" = "Drupal\tmgmt\Form\JobItemDeleteForm"
  *     },
  *     "list_builder" = "Drupal\tmgmt\Entity\ListBuilder\JobItemListBuilder",
@@ -45,6 +46,7 @@ use Drupal\Component\Utility\SafeMarkup;
  *   },
  *   links = {
  *     "canonical" = "/admin/tmgmt/items/{tmgmt_job_item}",
+ *     "abort-form" = "/admin/tmgmt/items/{tmgmt_job_item}/abort",
  *     "delete-form" = "/admin/tmgmt/items/{tmgmt_job_item}/delete",
  *   }
  * )
@@ -112,7 +114,7 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
       ->setLabel(t('Job item state'))
       ->setDescription(t('The job item state'))
       ->setSetting('allowed_values', $states)
-      ->setDefaultValue(static::STATE_ACTIVE);
+      ->setDefaultValue(static::STATE_INACTIVE);
 
     $fields['changed'] = BaseFieldDefinition::create('changed')
       ->setLabel(t('Changed'))
@@ -138,6 +140,10 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
       ->setLabel(t('Word count'))
       ->setSetting('unsigned', TRUE);
 
+    $fields['tags_count'] = BaseFieldDefinition::create('integer')
+      ->setLabel(t('Tags count'))
+      ->setSetting('unsigned', TRUE);
+
     return $fields;
   }
 
@@ -151,6 +157,7 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
     $clone->tjid->target_id = 0;
     $clone->tjiid->value = 0;
     $clone->word_count->value = NULL;
+    $clone->tags_count->value = NULL;
     $clone->count_accepted->value = NULL;
     $clone->count_pending->value = NULL;
     $clone->count_translated->value = NULL;
@@ -439,6 +446,13 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
   /**
    * {@inheritdoc}
    */
+  public function getTagsCount() {
+    return (int) $this->get('tags_count')->value;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function needsReview($message = NULL, $variables = array(), $type = 'status') {
     if (!isset($message)) {
       $source_url = $this->getSourceUrl();
@@ -450,7 +464,7 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
     }
     $return = $this->setState(static::STATE_REVIEW, $message, $variables, $type);
     // Auto accept the translation if the translator is configured for it.
-    if ($this->getTranslator()->isAutoAccept()) {
+    if ($this->getTranslator()->isAutoAccept() && !$this->isAborted()) {
       $this->acceptTranslation();
     }
     return $return;
@@ -462,16 +476,41 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
   public function accepted($message = NULL, $variables = array(), $type = 'status') {
     if (!isset($message)) {
       $source_url = $this->getSourceUrl();
-      $message = $source_url ? 'The translation for <a href=":source_url">@source</a> has been accepted.' : 'The translation for @source has been accepted.';
-      $variables = $source_url ? array(
-        ':source_url' => $source_url->toString(),
-        '@source' => ($this->getSourceLabel()),
-      ) : array('@source' => ($this->getSourceLabel()));
+      try {
+        $translation = entity_load($this->getItemType(), $this->getItemId());
+      }
+      catch (PluginNotFoundException $e) {
+        $translation = NULL;
+      }
+      if (isset($translation)) {
+        $translation = $translation->getTranslation($this->getJob()->getTargetLangcode());
+        try {
+          $translation_url = $translation->toUrl();
+        }
+        catch (UndefinedLinkTemplateException $e) {
+          $translation_url = NULL;
+        }
+        $message = $source_url && $translation_url ? 'The translation for <a href=":source_url">@source</a> has been accepted as <a href=":target_url">@target</a>.' : 'The translation for @source has been accepted as @target.';
+        $variables = $translation_url ? array(
+          ':source_url' => $source_url->toString(),
+          '@source' => ($this->getSourceLabel()),
+          ':target_url' => $translation_url->toString(),
+          '@target' => $translation ? $translation->label() : $this->getSourceLabel(),
+        ) : array('@source' => ($this->getSourceLabel()), '@target' => ($translation ? $translation->label() : $this->getSourceLabel()));
+      }
+      else {
+        $message   = $source_url ? 'The translation for <a href=":source_url">@source</a> has been accepted.' : 'The translation for @source has been accepted.';
+        $variables = $source_url ? array(
+          ':source_url' => $source_url->toString(),
+          '@source'     => ($this->getSourceLabel()),
+        ) : array('@source' => ($this->getSourceLabel()));
+      }
     }
     $return = $this->setState(static::STATE_ACCEPTED, $message, $variables, $type);
     // Check if this was the last unfinished job item in this job.
-    if (tmgmt_job_check_finished($this->getJobId()) && $job = $this->getJob()) {
-      // Mark the job as finished.
+    $job = $this->getJob();
+    if ($job && !$job->isContinuous() && tmgmt_job_check_finished($this->getJobId())) {
+      // Mark the job as finished in case it is a normal job.
       $job->finished();
     }
     return $return;
@@ -553,20 +592,40 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
   }
 
   /**
+   * {@inheritdoc}
+   */
+  public function isInactive() {
+    return $this->isState(static::STATE_INACTIVE);
+  }
+
+  /**
    * Recursively writes translated data to the data array of a job item.
    *
    * While doing this the #status of each data item is set to
    * TMGMT_DATA_ITEM_STATE_TRANSLATED.
    *
-   * @param $translation
+   * @param array $translation
    *   Nested array of translated data. Can either be a single text entry, the
    *   whole data structure or parts of it.
-   * @param $key
-   *   (Optional) Either a flattened key (a 'key1][key2][key3' string) or a nested
-   *   one, e.g. array('key1', 'key2', 'key2'). Defaults to an empty array which
-   *   means that it will replace the whole translated data array.
+   * @param array|string $key
+   *   (Optional) Either a flattened key (a 'key1][key2][key3' string) or a
+   *   nested one, e.g. array('key1', 'key2', 'key2'). Defaults to an empty
+   *   array which means that it will replace the whole translated data array.
+   * @param int|null $status
+   *   (Optional) The data item status that will be set. Defaults to NULL,
+   *   which means that it will be set to translated unless it was previously
+   *   set to preliminary, then it will keep that state.
+   *   Explicitly pass TMGMT_DATA_ITEM_STATE_TRANSLATED,
+   *   TMGMT_DATA_ITEM_STATE_PRELIMINARY or TMGMT_DATA_ITEM_STATE_REVIEWED to
+   *   set it to that value. Other statuses are not supported.
+   *
+   * @throws \Drupal\tmgmt\TMGMTException
+   *   If is given an unsupported status.
    */
-  protected function addTranslatedDataRecursive($translation, $key = array()) {
+  protected function addTranslatedDataRecursive(array $translation, $key = array(), $status = NULL) {
+    if ($status != NULL && !in_array($status, [TMGMT_DATA_ITEM_STATE_PRELIMINARY, TMGMT_DATA_ITEM_STATE_TRANSLATED, TMGMT_DATA_ITEM_STATE_REVIEWED])) {
+      new TMGMTException('Unsupported status given.');
+    }
     if (isset($translation['#text'])) {
       $data_service = \Drupal::service('tmgmt.data');
       $data = $this->getData($data_service->ensureArrayKey($key));
@@ -636,9 +695,18 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
           }
         }
 
+        if ($status == NULL) {
+          if (isset($data['#status']) && $data['#status'] == TMGMT_DATA_ITEM_STATE_PRELIMINARY) {
+            $status = TMGMT_DATA_ITEM_STATE_PRELIMINARY;
+          }
+          else {
+            $status = TMGMT_DATA_ITEM_STATE_TRANSLATED;
+          }
+        }
+
         $values = array(
           '#translation' => $translation,
-          '#status' => TMGMT_DATA_ITEM_STATE_TRANSLATED,
+          '#status' => $status,
         );
         $this->updateData($key, $values);
       }
@@ -646,7 +714,7 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
     }
 
     foreach (Element::children($translation) as $item) {
-      $this->addTranslatedDataRecursive($translation[$item], array_merge($key, array($item)));
+      $this->addTranslatedDataRecursive($translation[$item], array_merge($key, array($item)), $status);
     }
   }
 
@@ -708,8 +776,23 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
   /**
    * {@inheritdoc}
    */
-  public function addTranslatedData(array $translation, $key = array()) {
-    $this->addTranslatedDataRecursive($translation, $key);
+  public function resetData() {
+    $this->data->value = NULL;
+    $this->unserializedData = NULL;
+    $this->getData();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function addTranslatedData(array $translation, $key = array(), $status = NULL) {
+
+    if ($this->isInactive()) {
+      // The job item can not be inactive and receive translations.
+      $this->setState(JobItemInterface::STATE_ACTIVE);
+    }
+
+    $this->addTranslatedDataRecursive($translation, $key, $status);
     // Check if the job item has all the translated data that it needs now.
     // Only attempt to change the status to needs review if it is currently
     // active.
@@ -717,7 +800,7 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
       $data = \Drupal::service('tmgmt.data')->filterTranslatable($this->getData());
       $finished = TRUE;
       foreach ($data as $item) {
-        if (empty($item['#status']) || $item['#status'] == TMGMT_DATA_ITEM_STATE_PENDING) {
+        if (empty($item['#status']) || $item['#status'] == TMGMT_DATA_ITEM_STATE_PENDING || $item['#status'] == TMGMT_DATA_ITEM_STATE_PRELIMINARY) {
           $finished = FALSE;
           break;
         }
@@ -736,7 +819,7 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
           $variables = array(
             '@source' => $this->getSourceLabel(),
             '@language' => $this->getJob()->getTargetLanguage()->getName(),
-            ':review_url' => Url::fromUserInput($job_url)->toString(),
+            ':review_url' => $this->url('canonical', array('query' => array('destination' => $job_url))),
           );
           (!$this->getSourceUrl()) ? $variables[':source_url'] = (string) $job_url : $variables[':source_url'] = $this->getSourceUrl()->toString();
           $this->needsReview('The translation of <a href=":source_url">@source</a> to @language is finished and can now be <a href=":review_url">reviewed</a>.', $variables);
@@ -760,6 +843,22 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
     // to the 'accepted' state.
     $this->accepted();
     return TRUE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function abortTranslation() {
+    if (!$this->isActive() || !$this->getTranslatorPlugin()) {
+      throw new TMGMTException('Cannot abort job item.');
+    }
+    $this->setState(JobItemInterface::STATE_ABORTED);
+    // Check if this was the last unfinished job item in this job.
+    $job = $this->getJob();
+    if ($job && !$job->isContinuous() && tmgmt_job_check_finished($this->getJobId())) {
+      // Mark the job as finished in case it is a normal job.
+      $job->finished();
+    }
   }
 
   /**
@@ -890,6 +989,7 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
       $this->count_reviewed = 0;
       $this->count_accepted = 0;
       $this->word_count = 0;
+      $this->tags_count = 0;
       $this->count($this->unserializedData);
     }
   }
@@ -906,6 +1006,9 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
 
         // Count words of the data item.
         $this->word_count->value += \Drupal::service('tmgmt.data')->wordCount($item['#text']);
+
+        // Count HTML tags of the data item.
+        $this->tags_count->value += \Drupal::service('tmgmt.data')->tagsCount($item['#text']);
 
         // Set default states if no state is set.
         if (!isset($item['#status'])) {
@@ -950,12 +1053,28 @@ class JobItem extends ContentEntityBase implements JobItemInterface {
   /**
    * {@inheritdoc}
    */
+  protected function invalidateTagsOnSave($update) {
+    parent::invalidateTagsOnSave($update);
+    if ($this->getJob()) {
+      $tags = $this->getJob()->getEntityType()->getListCacheTags();
+      if ($update) {
+        $tags = Cache::mergeTags($tags, $this->getJob()
+          ->getCacheTagsToInvalidate());
+      }
+      Cache::invalidateTags($tags);
+    }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public static function getStates() {
     return array(
       static::STATE_ACTIVE => t('In progress'),
       static::STATE_REVIEW => t('Needs review'),
       static::STATE_ACCEPTED => t('Accepted'),
       static::STATE_ABORTED => t('Aborted'),
+      static::STATE_INACTIVE => t('Inactive'),
     );
   }
 

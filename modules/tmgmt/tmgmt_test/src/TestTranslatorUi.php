@@ -23,10 +23,13 @@ class TestTranslatorUi extends TranslatorPluginUiBase {
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
     $form = parent::buildConfigurationForm($form, $form_state);
 
+    /** @var \Drupal\tmgmt\TranslatorInterface $test_translator */
+    $test_translator = $form_state->getFormObject()->getEntity();
+
     $form['expose_settings'] = array(
       '#type' => 'checkbox',
       '#title' => t('Display settings'),
-      '#default_value' => TRUE,
+      '#default_value' => $test_translator->getSetting('expose_settings'),
     );
 
     $form['action'] = array(
@@ -40,6 +43,7 @@ class TestTranslatorUi extends TranslatorPluginUiBase {
         'not_available' => t('Not available'),
         'not_translatable' => t('Not translatable'),
       ),
+      '#default_value' => $test_translator->getSetting('action'),
     );
     return $form;
   }
@@ -70,8 +74,9 @@ class TestTranslatorUi extends TranslatorPluginUiBase {
    * {@inheritdoc}
    */
   public function reviewDataItemElement(array $form, FormStateInterface $form_state, $data_item_key, $parent_key, array $data_item, JobItemInterface $item) {
-    $form['below'] = array(
-      '#markup' => t('Testing output of review data item element @key from the testing translator.', array('@key' => $data_item_key))
+    $form['below']['test_translator'] = array(
+      '#markup' => t('Testing output of review data item element @key from the testing provider.', array('@key' => $data_item_key)),
+      '#weight' => 100,
     );
 
     return $form;

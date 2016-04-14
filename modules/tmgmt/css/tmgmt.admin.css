@@ -8,7 +8,28 @@
   margin-right: 80px;
 }
 
-.tmgmt-ui-job-items-suggestions fieldset {
+@media
+  screen and (min-width: 1180px) {
+  .state-unprocessed #tmgmt-ui-translator-wrapper {
+    width: 50%;
+    float: left;
+  }
+
+  .state-unprocessed #tmgmt-ui-job-checkout-details {
+    width: 50%;
+    float: right;
+  }
+
+  .state-unprocessed #tmgmt-ui-translator-wrapper details {
+    margin-right: 1em;
+  }
+
+  .state-unprocessed #tmgmt-ui-job-checkout-details details {
+    margin-left: 1em;
+  }
+}
+
+.tmgmt-ui-job-items-suggestions details {
   padding-top: 13px;
 }
 
@@ -34,16 +55,27 @@ table.tmgmt-ui-review tbody th {
   font-weight: bold;
 }
 
+.tmgmt-review-message-inline {
+  display: inline;
+}
+
 .tmgmt-ui-data-item-label .form-item {
   /* Get the label out of way, so the status icon can be placed at the same
   relative position */
   position: absolute;
 }
 
+.tmgmt-ui-data-item-label .form-item label {
+    display: inline-block;
+    width: 100px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .tmgmt-ui-state {
-  /* Visually align the icon in the center between left table border and the
-     first textarea.*/
-  margin: 1.8em -10px 1em 0;
+  /* Visually align the icon with the text area next to it. */
+  margin-top: 2.4em;
   text-align: center;
 }
 
@@ -59,8 +91,10 @@ table.tmgmt-ui-review tbody th {
   text-align: center;
   border-style: solid;
   box-shadow: 0 0 4px rgba(0,0,0,0.4);
-  -moz-box-shadow: 0 0 4px rgba(0,0,0,0.4);
-  -webkit-box-shadow: 0 0 4px rgba(0,0,0,0.4);
+}
+
+.tmgmt-ui-icon img {
+  vertical-align: text-bottom;
 }
 
 /* Icon sizes. */
@@ -69,16 +103,10 @@ table.tmgmt-ui-review tbody th {
   height: 32px;
   border-width: 1px;
   line-height: 32px;
-  text-shadow: 0 -1px 0 rgba(0,0,0,0.5);
   border-radius: 3px;
-  -moz-border-radius: 3px;
 }
 
-.tmgmt-ui-icon.tmgmt-ui-icon-32 span {
-  font-size: 23px;
-}
-
-.tmgmt-source-status div, .tmgmt-item-status div {
+.tmgmt-legend div {
   float: left;
 }
 
@@ -101,18 +129,23 @@ table.tmgmt-ui-review tbody th {
   clear: both;
 }
 
+.tmgmt-source-operations-wrapper .form-item-add-all-to-continuous-jobs {
+  display: inline-block;
+}
+
 .view-tmgmt-node-source-overview .view-filters, .tmgmt-sources-wrapper {
   margin-right: 310px;
 }
 
 .tmgmt-status {
   font-weight: 700;
-  width: 100px;
+  float: right;
 }
 
 .tmgmt-ui-data-item-actions div {
+  /* Visually align the action buttons with the text area next to them. */
   position: relative;
-  margin-top: 25%;
+  margin-top: 2.4em;
 }
 
 .tmgmt-ui-data-item-actions div input {
@@ -122,4 +155,91 @@ table.tmgmt-ui-review tbody th {
 .tmgmt_validation_message {
   width: 50%;
   float: right;
+}
+
+.tmgmt-progress-pending, .tmgmt-progress-translated,
+.tmgmt-progress-reviewed, .tmgmt-progress-accepted {
+  float: left;
+  text-align: center;
+  color: #fff;
+  overflow: hidden;
+}
+
+.tmgmt-progress-pending {
+  background-color: #0074BD;
+}
+
+.tmgmt-progress-translated {
+  background-color: #E29700;
+}
+
+.tmgmt-progress-reviewed {
+  background-color: #71b350;
+}
+
+.tmgmt-progress-accepted {
+  background-color: #578a3e;
+}
+
+td.views-field-word-count, th.views-field-word-count,
+td.views-field-tags-count, th.views-field-tags-count,
+td.views-field-item-count, th.views-field-item-count,
+td.views-field-loop-count, th.views-field-loop-count {
+  text-align: right;
+}
+
+.tmgmt-local-progress-untranslated, .tmgmt-local-progress-translated,
+.tmgmt-local-progress-completed {
+  float: left;
+  text-align: center;
+  color: #fff;
+  overflow: hidden;
+}
+
+.tmgmt-local-progress-untranslated {
+  background-color: #E29700;
+}
+
+.tmgmt-local-progress-translated {
+  background-color: #0074BD;
+}
+
+.tmgmt-local-progress-completed {
+  background-color: #71b350;
+}
+
+td.views-field-status {
+  text-align: center;
+  padding: 0;
+}
+
+td.views-field-state {
+  text-align: center;
+  padding: 0 0 0 8px;
+}
+
+th.views-field-status, th.views-field-state {
+  font-size: 0;
+  padding: 0;
+}
+
+td.views-field-state img, td.views-field-status img {
+  vertical-align: middle;
+}
+
+th.views-field-state a, td.views-field-status a {
+  width: 0;
+}
+
+td.views-field-tjid a {
+  display: inline-block;
+  width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+ /* @todo Added while in core is set to "fixed". */
+.tmgmt-ui-review table.diff {
+  table-layout: auto;
 }

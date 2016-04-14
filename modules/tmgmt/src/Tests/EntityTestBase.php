@@ -7,7 +7,6 @@
 
 namespace Drupal\tmgmt\Tests;
 
-use Drupal\comment\CommentTranslationHandler;
 use Drupal\comment\Tests\CommentTestTrait;
 use Drupal\Component\Utility\Unicode;
 use Drupal\Core\Field\FieldStorageDefinitionInterface;
@@ -164,7 +163,7 @@ abstract class EntityTestBase extends TMGMTTestBase {
    * @return \Drupal\node\NodeInterface
    *   Newly created node object.
    */
-  function createNode($bundle, $sourcelang = 'en') {
+  protected function createTranslatableNode($bundle, $sourcelang = 'en') {
     $node = array(
       'type' => $bundle,
       'langcode' => $sourcelang,

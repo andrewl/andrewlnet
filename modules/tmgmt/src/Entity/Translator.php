@@ -7,7 +7,6 @@
 
 namespace Drupal\tmgmt\Entity;
 
-use Drupal\Component\Plugin\Exception\PluginException;
 use Drupal\Component\Utility\NestedArray;
 use Drupal\Core\Cache\Cache;
 use Drupal\Core\Config\Entity\ConfigEntityBase;
@@ -20,14 +19,17 @@ use Drupal\tmgmt\TranslatorInterface;
 /**
  * Entity class for the tmgmt_translator entity.
  *
+ * For disambiguation, The UI uses the term "Provider" for a translator.
+ *
  * @ConfigEntityType(
  *   id = "tmgmt_translator",
- *   label = @Translation("Translator"),
+ *   label = @Translation("Provider"),
  *   handlers = {
  *     "form" = {
  *       "edit" = "Drupal\tmgmt\Form\TranslatorForm",
  *       "add" = "Drupal\tmgmt\Form\TranslatorForm",
- *       "delete" = "Drupal\tmgmt\Form\TranslatorDeleteForm",
+ *       "delete" = "\Drupal\Core\Entity\EntityDeleteForm",
+ *       "clone" = "Drupal\tmgmt\Form\TranslatorForm",
  *     },
  *     "list_builder" = "Drupal\tmgmt\Entity\ListBuilder\TranslatorListBuilder",
  *     "access" = "Drupal\tmgmt\Entity\Controller\TranslatorAccessControlHandler",
@@ -50,10 +52,11 @@ use Drupal\tmgmt\TranslatorInterface;
  *     "remote_languages_mappings",
  *   },
  *   links = {
- *     "collection" = "/admin/config/regional/tmgmt_translator",
- *     "edit-form" = "/admin/config/regional/tmgmt_translator/manage/{tmgmt_translator}",
- *     "add-form" = "/admin/config/regional/tmgmt_translator/add",
- *     "delete-form" = "/tmgmt_translator/{tmgmt_translator}/delete",
+ *     "collection" = "/admin/tmgmt/translators",
+ *     "edit-form" = "/admin/tmgmt/translator/manage/{tmgmt_translator}",
+ *     "add-form" = "/admin/tmgmt/translators/add",
+ *     "delete-form" = "/admin/tmgmt/translators/manage/{tmgmt_translator}/delete",
+ *     "clone-form" = "/admin/tmgmt/translators/manage/{tmgmt_translator}/clone",
  *   }
  * )
  *
@@ -115,7 +118,7 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
    *
    * @var bool
    */
-   protected $auto_accept;
+  protected $auto_accept;
 
   /**
    * The supported target languages caches.
@@ -132,6 +135,13 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
   protected $languagePairsCache;
 
   /**
+   * The supported remote languages caches.
+   *
+   * @var array
+   */
+  protected $remoteLanguages = [];
+
+  /**
    * Whether the language cache in the database is outdated.
    *
    * @var bool
@@ -143,7 +153,7 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
    *
    * @var array
    */
-  protected $remoteLanguagesMappings = array();
+  protected $remote_languages_mappings = array();
 
   /**
    * {@inheritdoc}
@@ -205,15 +215,15 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
    * {@inheritdoc}
    */
   public function isAutoAccept() {
-      return $this->auto_accept;
+    return $this->auto_accept;
   }
 
   /**
    * {@inheritdoc}
    */
   public function setAutoAccept($value) {
-      $this->auto_accept = $value;
-      return $this;
+    $this->auto_accept = $value;
+    return $this;
   }
 
   /**
@@ -243,10 +253,15 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
   public static function preDelete(EntityStorageInterface $storage, array $entities) {
     // We are never going to have many entities here, so we can risk a loop.
     foreach ($entities as $key => $name) {
-      if (tmgmt_translator_busy($key)) {
-        // The translator can't be deleted because it is currently busy. Remove
-        // it from the ids so it wont get deleted in the parent implementation.
-        unset($entities[$key]);
+      // Find active jobs associated with the translator that is being deleted.
+      $job_ids = \Drupal::entityQuery('tmgmt_job')
+        ->condition('state', [Job::STATE_ACTIVE, Job::STATE_CONTINUOUS, Job::STATE_UNPROCESSED], 'IN')
+        ->condition('translator', $key)
+        ->execute();
+      $jobs = Job::loadMultiple($job_ids);
+      /** @var \Drupal\tmgmt\JobInterface $job */
+      foreach ($jobs as $job) {
+        $job->aborted('Job has been aborted because the translation provider %provider was deleted.', ['%provider' => $job->getTranslatorLabel()]);
       }
     }
     parent::preDelete($storage, $entities);
@@ -266,7 +281,7 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
     if (!empty($this->plugin) && \Drupal::service('plugin.manager.tmgmt.translator')->hasDefinition($this->plugin)) {
       return TRUE;
     }
-   return FALSE;
+    return FALSE;
   }
 
   /**
@@ -286,7 +301,11 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
         // Even if we successfully queried the cache it might not have an entry
         // for our source language yet.
         if (!isset($this->languageCache[$source_language])) {
-          $this->languageCache[$source_language] = $this->mapToLocalLanguages($plugin->getSupportedTargetLanguages($this, $this->mapToRemoteLanguage($source_language)));
+          $local_languages = $this->mapToLocalLanguages($plugin->getSupportedTargetLanguages($this, $this->mapToRemoteLanguage($source_language)));
+          if (empty($local_languages)) {
+            return [];
+          }
+          $this->languageCache[$source_language] = $local_languages;
           $this->updateCache();
         }
       }
@@ -322,6 +341,18 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
   /**
    * {@inheritdoc}
    */
+  public function getSupportedRemoteLanguages() {
+    if ($plugin = $this->getPlugin()) {
+      if (empty($this->remoteLanguages)) {
+        $this->remoteLanguages = $plugin->getSupportedRemoteLanguages($this);
+      }
+    }
+    return $this->remoteLanguages;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function clearLanguageCache() {
     $this->languageCache = array();
     \Drupal::cache('data')->delete('tmgmt_languages:' . $this->name);
@@ -336,7 +367,7 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
     if ($plugin = $this->getPlugin()) {
       return $plugin->checkTranslatable($this, $job);
     }
-    return TranslatableResult::no(t('Missing translator plugin'));
+    return TranslatableResult::no(t('Missing provider plugin'));
   }
 
   /**
@@ -362,20 +393,16 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
     return FALSE;
   }
 
-
   /**
    * {@inheritdoc}
    */
   public function getRemoteLanguagesMappings() {
-    if (!empty($this->remoteLanguagesMappings)) {
-      return $this->remoteLanguagesMappings;
-    }
-
+    $remote_languages_mappings = [];
     foreach (\Drupal::languageManager()->getLanguages() as $language => $info) {
-      $this->remoteLanguagesMappings[$language] = $this->mapToRemoteLanguage($language);
+      $remote_languages_mappings[$language] = $this->mapToRemoteLanguage($language);
     }
 
-    return $this->remoteLanguagesMappings;
+    return $remote_languages_mappings;
   }
 
   /**
@@ -411,14 +438,21 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
     }
 
     $mapping = $this->get('remote_languages_mappings');
+    $remote_languages = $this->getSupportedRemoteLanguages();
     if (!empty($mapping) && array_key_exists($language, $mapping)) {
-      return $mapping[$language];
+      if (empty($remote_languages) || array_key_exists($mapping[$language], $remote_languages)) {
+        return $mapping[$language];
+      }
     }
 
     $default_mappings = $this->getPlugin()->getDefaultRemoteLanguagesMappings();
 
     if (isset($default_mappings[$language])) {
       return $default_mappings[$language];
+    }
+
+    if ($matching_language = \Drupal::service('tmgmt.language_matcher')->getMatchingLangcode($language, $remote_languages)) {
+      return $matching_language;
     }
 
     return $language;
@@ -459,6 +493,17 @@ class Translator extends ConfigEntityBase implements TranslatorInterface {
     }
 
     return FALSE;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function calculateDependencies() {
+    parent::calculateDependencies();
+    if ($this->getPlugin()) {
+      $this->addDependency('module', $this->getPlugin()->getPluginDefinition()['provider']);
+    }
+    return $this;
   }
 
 }

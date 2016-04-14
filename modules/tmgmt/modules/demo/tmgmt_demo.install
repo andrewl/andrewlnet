@@ -6,6 +6,9 @@
 
 use Drupal\Core\Url;
 use Drupal\node\Entity\Node;
+use Drupal\user\Entity\Role;
+use Drupal\user\Entity\User;
+use Drupal\user\RoleInterface;
 
 
 /**
@@ -23,14 +26,14 @@ function tmgmt_demo_install() {
     'sticky' => TRUE,
     'body' => [
       'value' => '<p>' . t('Welcome to the Translation Management Tool Demo module!') . '</p>'
-        . '<p>' . t('The Translation Management Tool (TMGMT) demo module provides the configuration needed for translating predefined content types - <a href="@content_language">translatable nodes</a>.', ['@content_language' => Url::fromUri('base:admin/config/regional/content-language')->toString()]) .'</p>'
-        . '<p>' . t('It enables three <a href="@languages_url">languages</a>. Besides English, it supports German and French.', ['@languages_url' => Url::fromUri('base:admin/config/regional/language')->toString()]) . '<p>'
+        . '<p>' . t('The Translation Management Tool (TMGMT) demo module provides the configuration needed for translating predefined content types - <a href=":content_language">translatable nodes</a>.', [':content_language' => Url::fromUri('base:admin/config/regional/content-language')->toString()]) .'</p>'
+        . '<p>' . t('It enables three <a href=":languages_url">languages</a>. Besides English, it supports German and French.', [':languages_url' => Url::fromUri('base:admin/config/regional/language')->toString()]) . '<p>'
         . '<p>' . t('Content translation is enabled by default. This allows users to translate the content on their own. Also, Export / Import File translator enables exporting source data into a file and import the translated in return.') . '<p>'
         . '<ul>'
         .   '<li>'
-        .     '<span>' . t('To get started with the translation, two <a href="@translatable_nodes">translatable nodes</a> are created. The steps for translation are the following:', ['@translatable_nodes' => Url::fromUri('base:admin/content')->toString()]) . '</span>'
+        .     '<span>' . t('To get started with the translation, two <a href=":translatable_nodes">translatable nodes</a> are created. The steps for translation are the following:', [':translatable_nodes' => Url::fromUri('base:admin/content')->toString()]) . '</span>'
         .     '<ul>'
-        .       '<li>' . t('On the node detail view use the <a href="@translate_url">"translate" Tab</a>, choose a language and click "Request Translation" to get started.', ['@translate_url' => Url::fromUri('base:node/3/translations')->toString()]) . '</li>'
+        .       '<li>' . t('On the node detail view use the <a href=":translate_url">"translate" Tab</a>, choose a language and click "Request Translation" to get started.', [':translate_url' => Url::fromUri('base:node/3/translations')->toString()]) . '</li>'
         .       '<li>' . t('After submitting the job, the status is changed to "In progress". In case of a machine translator, the translation is immediately returned. The status is then "Needs review".') . '</li>'
         .       '<li>' . t('"In progress" is the state where we are awaiting the translations from the translator.') . '</li>'
         .       '<li>' . t('Once the translations are provided by the translator, we can review the job items (and correct) the translated content. Some translators support feedback cycles. We can send an item that needs a better translation back to the translator with some comments. If the translation is fine, we can accept the job items (or the job). This is when the source items are updated/the translation is created.') . '</li>'
@@ -40,14 +43,26 @@ function tmgmt_demo_install() {
         . '</ul>'
         . '<ul>'
         .   '<li>'
-        .   '<span>' . t('In the TMGMT demo module the <a href="@file_translator">File translator</a> is enabled by default. It allows users to export and import texts via xliff and HTML. The workflow is the following:', ['@file_translator' => Url::fromUri('base:admin/config/regional/tmgmt_translator')->toString()]) . '</span>'
+        .   '<span>' . t('In the TMGMT demo module the <a href=":file_translator">File translator</a> is enabled by default. It allows users to export and import texts via xliff and HTML. The workflow is the following:', [':file_translator' => Url::fromUri('base:admin/config/regional/tmgmt_translator/manage/file')->toString()]) . '</span>'
         .     '<ul>'
         .       '<li>' . t('Submit a job to the File translator. The job is in "active" state.') . '</li>'
         .       '<li>' . t('Export it as HTML/XLIFF format.') . '</li>'
         .       '<li>' . t('Translate the content by editing the XLIFF files in plaintext or with a proper CAT tool.') . '</li>'
         .       '<li>' . t('Import it back on the site.') . '</li>'
         .       '<li>' . t('Review the job items/data items. XLIFF does not support a feedback loop or commenting an item. Improvements/fixings can only be done by the reviewer (or by reimporting the improved XLIFF).') . '</li>'
-        .       '<li>' . t('Job items can be accepted separately by clicking the check button - "Reviewed" and saving or finally as the whole job.') . '</li>'
+        .       '<li>' . t('Press save as completed to accept the translation and finish the process.') . '</li>'
+        .     '</ul>'
+        .   '</li>'
+        . '</ul>'
+        . '<ul>'
+        .   '<li>'
+        .   '<span>' . t('In the TMGMT demo module the <a href=":tmgmt_local">Drupal user</a> provider is also enabled by default. It allows to assign translation tasks to the users of the site that have the abilities to translate it (The demo adds all the abilities to all the users). The workflow is the following:', [':tmgmt_local' => Url::fromUri('base:admin/config/regional/tmgmt_translator/manage/local')->toString()]) . '</span>'
+        .     '<ul>'
+        .       '<li>' . t('Submit a job to the Drupal user provider and select translator for the job. The job is in "active" state.') . '</li>'
+        .       '<li>' . t('The user will translate the task. Also the task items can be reviewed.') . '</li>'
+        .       '<li>' . t('When the translation is done, the user will set the task as completed.') . '</li>'
+        .       '<li>' . t('Review the job items. This translator does not support a feedback loop or commenting an item. Improvements/fixings can only be done by the reviewer.') . '</li>'
+        .       '<li>' . t('Press save as completed to accept the translation and finish the process.') . '</li>'
         .     '</ul>'
         .   '</li>'
         . '</ul>'
@@ -56,9 +71,10 @@ function tmgmt_demo_install() {
         .   '<li>'
         .   '<span>' . t('External translation services can be used for creating a foreign language version of the source text. These are the recommended translators:'). '</span>'
         .     '<ul>'
-        .       '<li>' . t('<a href="@microsoft">Microsoft Translator</a>', ['@microsoft' => Url::fromUri('https://www.drupal.org/project/tmgmt_microsoft')->toString()]) . '</li>'
-        .       '<li>' . t('<a href="@google_translate">Google translate</a>', ['@google_translate' => Url::fromUri('https://www.drupal.org/project/tmgmt_google')->toString()]) . '</li>'
-        .       '<li>' . t('<a href="@gengo">Gengo</a>', ['@gengo' => Url::fromUri('https://www.drupal.org/project/tmgmt_mygengo')->toString()]) . '</li>'
+        .       '<li>' . t('<a href=":microsoft">Microsoft</a>', [':microsoft' => Url::fromUri('https://www.drupal.org/project/tmgmt_microsoft')->toString()]) . '</li>'
+        .       '<li>' . t('<a href=":google_translate">Google translate</a>', [':google_translate' => Url::fromUri('https://www.drupal.org/project/tmgmt_google')->toString()]) . '</li>'
+        .       '<li>' . t('<a href=":gengo">Gengo</a>', [':gengo' => Url::fromUri('https://www.drupal.org/project/tmgmt_mygengo')->toString()]) . '</li>'
+        .       '<li>' . t('<a href=":oht">One Hour Translation</a>', [':oht' => Url::fromUri('https://www.drupal.org/project/tmgmt_oht')->toString()]) . '</li>'
         .     '</ul>'
         .   '</li>'
         . '</ul>',
@@ -74,7 +90,10 @@ function tmgmt_demo_install() {
   $node = Node::create(array(
     'type' => 'translatable_node',
     'title' => t('Second node'),
-    'body' => t('Have another try. This text can be translated as well.'),
+    'body' => [
+      'value' => t('Have another try. This text can be translated as well.'),
+      'format' => 'restricted_html',
+    ],
     'uid' => '0',
     'status' => 1,
   ));
@@ -83,9 +102,44 @@ function tmgmt_demo_install() {
   $node = Node::create(array(
     'type' => 'translatable_node',
     'title' => t('First node'),
-    'body' => t('This text can be translated with TMGMT. Use the "translate" Tab and choose "Request Translation" to get started.'),
+    'body' => [
+      'value' => t('This text can be translated with TMGMT. Use the "translate" Tab and choose "Request Translation" to get started.'),
+      'format' => 'full_html',
+    ],
     'uid' => '0',
     'status' => 1,
   ));
   $node->save();
+
+  if (\Drupal::moduleHandler()->moduleExists('paragraphs_demo')) {
+    \Drupal::configFactory()->getEditable('tmgmt_content.settings')
+    ->set('embedded_fields.node.field_paragraphs_demo', TRUE)
+    ->save();
+  }
+
+  // Allow translation to all authenticated users.
+  /** @var Role $role */
+  $role = Role::load(RoleInterface::AUTHENTICATED_ID);
+  $role->grantPermission('provide translation services');
+  $role->grantPermission('view the administration theme');
+  $role->grantPermission('access toolbar');
+  $role->save();
+
+  // Add all skills to all users.
+  /** @var User $user */
+  foreach (User::loadMultiple() as $user) {
+    if ($user->id() != 0) {
+      $user->tmgmt_translation_skills = [
+        [
+          'language_from' => 'en',
+          'language_to' => 'de',
+        ],
+        [
+          'language_from' => 'en',
+          'language_to' => 'fr',
+        ],
+      ];
+      $user->save();
+    }
+  }
 }

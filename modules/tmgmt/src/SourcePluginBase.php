@@ -8,8 +8,7 @@
 namespace Drupal\tmgmt;
 
 use Drupal\Component\Plugin\PluginBase;
-use Drupal\tmgmt\Entity\JobItem;
-
+use Drupal\Core\StringTranslation\StringTranslationTrait;
 
 /**
  * Default controller class for source plugins.
@@ -17,6 +16,8 @@ use Drupal\tmgmt\Entity\JobItem;
  * @ingroup tmgmt_source
  */
 abstract class SourcePluginBase extends PluginBase implements SourcePluginInterface {
+
+  use StringTranslationTrait;
 
   /**
    * {@inheritdoc}

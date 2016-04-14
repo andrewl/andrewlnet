@@ -1,6 +1,6 @@
 <?php
 
-/*
+/**
  * @file
  * Contains \Drupal\tmgmt_local\Entity\LocalTask.
  */
@@ -8,14 +8,14 @@
 namespace Drupal\tmgmt_local\Entity;
 
 use Drupal\Core\Entity\ContentEntityBase;
-use Drupal\Core\Entity\EntityChangedInterface;
+use Drupal\Core\Entity\EntityChangedTrait;
 use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\Core\Entity\EntityTypeInterface;
 use Drupal\Core\Field\BaseFieldDefinition;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\tmgmt\JobItemInterface;
-use Drupal\user\EntityOwnerInterface;
 use Drupal\user\UserInterface;
-use Drupal\user\Entity\User;
+use Drupal\tmgmt_local\LocalTaskInterface;
 
 /**
  * Entity class for the local task entity.
@@ -23,24 +23,38 @@ use Drupal\user\Entity\User;
  * @ContentEntityType(
  *   id = "tmgmt_local_task",
  *   label = @Translation("Translation Task"),
- *   controllers = {
- *     "access" = "Drupal\tmgmt_local\Entity\Controller\LocalTaskAccessController",
+ *   handlers = {
+ *     "access" = "Drupal\tmgmt_local\Entity\Controller\LocalTaskAccessControlHandler",
  *     "form" = {
- *       "edit" = "Drupal\tmgmt_local\Entity\Form\LocalTaskFormController"
- *     }
+ *       "edit" = "Drupal\tmgmt_local\Form\LocalTaskForm",
+ *       "assign" = "Drupal\tmgmt_local\Form\LocalTaskAssignForm",
+ *       "unassign" = "Drupal\tmgmt_local\Form\LocalTaskUnassignForm",
+ *       "delete" = "Drupal\Core\Entity\ContentEntityDeleteForm",
+ *     },
+ *     "list_builder" = "Drupal\tmgmt_local\Entity\ListBuilder\LocalTaskListBuilder",
+ *     "view_builder" = "Drupal\Core\Entity\EntityViewBuilder",
+ *     "views_data" = "Drupal\tmgmt_local\Entity\ViewsData\LocalTaskViewsData",
  *   },
  *   base_table = "tmgmt_local_task",
  *   entity_keys = {
  *     "id" = "tltid",
  *     "label" = "label",
  *     "uuid" = "uuid"
+ *   },
+ *   links = {
+ *     "canonical" = "/translate/{tmgmt_local_task}",
+ *     "assign" = "/translate/{tmgmt_local_task}/assign",
+ *     "assign_to_me" = "/translate/{tmgmt_local_task}/assign_to_me",
+ *     "unassign" = "/translate/{tmgmt_local_task}/unassign",
+ *     "delete" = "/translate/{tmgmt_local_task}/delete",
  *   }
  * )
  *
- *
  * @ingroup tmgmt_local_task
  */
-class LocalTask extends ContentEntityBase implements EntityChangedInterface, EntityOwnerInterface {
+class LocalTask extends ContentEntityBase implements LocalTaskInterface {
+
+  use EntityChangedTrait;
 
   /**
    * {@inheritdoc}
@@ -86,22 +100,22 @@ class LocalTask extends ContentEntityBase implements EntityChangedInterface, Ent
       ->setDefaultValue(0);
 
     $fields['tuid'] = BaseFieldDefinition::create('entity_reference')
-      ->setLabel(t('Assigned translator'))
-      ->setDescription(t('The translator assigned to this task.'))
+      ->setLabel(t('Assigned user'))
+      ->setDescription(t('The user assigned to this task.'))
       ->setSettings(array(
         'target_type' => 'user',
       ))
       ->setDefaultValue(0);
 
     $fields['status'] = BaseFieldDefinition::create('integer')
-      ->setLabel(t('Local task status'))
+      ->setLabel(t('Status'))
       ->setDescription(t('The local task status.'))
-      ->setDefaultValue(TMGMT_LOCAL_TASK_STATUS_UNASSIGNED);
+      ->setDefaultValue(static::STATUS_UNASSIGNED);
 
     $fields['loop_count'] = BaseFieldDefinition::create('integer')
       ->setLabel(t('Loop count'))
-      ->setDescription(t('Counter for how many times task was returned to translator.'))
-      ->setDefaultValue(TMGMT_LOCAL_TASK_STATUS_UNASSIGNED);
+      ->setDescription(t('Counter for how many times task was returned to the assigned user.'))
+      ->setDefaultValue(static::STATUS_UNASSIGNED);
 
     $fields['created'] = BaseFieldDefinition::create('created')
       ->setLabel(t('Created'))
@@ -146,6 +160,13 @@ class LocalTask extends ContentEntityBase implements EntityChangedInterface, Ent
   /**
    * {@inheritdoc}
    */
+  public function getAssignee() {
+    return $this->get('tuid')->entity;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function getChangedTime() {
     return $this->get('changed')->value;
   }
@@ -153,68 +174,46 @@ class LocalTask extends ContentEntityBase implements EntityChangedInterface, Ent
   /**
    * {@inheritdoc}
    */
-  protected function defaultLabel() {
-    if (empty($this->tuid)) {
-      if (empty($this->title)) {
-        return t('Task for @job', array('@job' => $this->getJob()->label()));
-      }
-      else {
-        return $this->title;
-      }
+  public function label() {
+    if (!$this->get('title')->value) {
+      return $this->getJob()->label();
     }
     else {
-      if (empty($this->title)) {
-        return t('Task for @job assigned to @translator', array('@job' => $this->getJob()->label(), '@translator' => User::load($this->tuid->getUsername())));
-      }
-      else {
-        return t('@title assigned to @translator', array('@title' => $this->title, '@translator' => User::load($this->tuid->getUsername())));
-      }
+      return $this->get('title')->value;
     }
   }
 
-
   /**
-   * Return the corresponding translation job.
-   *
-   * @return \Drupal\tmgmt\JobInterface
+   * {@inheritdoc}
    */
   public function getJob() {
     return $this->get('tjid')->entity;
   }
 
   /**
-   * Assign translation task to passed user.
-   *
-   * @param object $user
-   *   User object.
+   * {@inheritdoc}
    */
-  public function assign($user) {
-    $this->incrementLoopCount(TMGMT_LOCAL_TASK_STATUS_PENDING, $user->id());
-    $this->tuid = $user->id();
-    $this->status = TMGMT_LOCAL_TASK_STATUS_PENDING;
+  public function assign(AccountInterface $user) {
+    $this->incrementLoopCount(static::STATUS_PENDING, $user->id());
+    $this->set('tuid', $user->id());
+    $this->set('status', static::STATUS_PENDING);
   }
 
   /**
-   * Unassign translation task.
+   * {@inheritdoc}
    */
   public function unassign() {
     // We also need to increment loop count when unassigning.
-    $this->incrementLoopCount(TMGMT_LOCAL_TASK_STATUS_UNASSIGNED, 0);
-    $this->tuid = 0;
-    $this->status = TMGMT_LOCAL_TASK_STATUS_UNASSIGNED;
+    $this->incrementLoopCount(static::STATUS_UNASSIGNED, 0);
+    $this->set('tuid', 0);
+    $this->set('status', static::STATUS_UNASSIGNED);
   }
 
   /**
-   * Returns all local task items attached to this task.
-   *
-   * @param array $conditions
-   *   Additional conditions.
-   *
-   * @return \Drupal\tmgmt_local\Entity\LocalTaskItem[]
-   *   An array of local task items.
+   * {@inheritdoc}
    */
   public function getItems($conditions = array()) {
-    $query = \Drupal::entityQuery('tmgmt_loal_task_item');
+    $query = \Drupal::entityQuery('tmgmt_local_task_item');
     $query->condition('tltid', $this->id());
     foreach ($conditions as $key => $condition) {
       if (is_array($condition)) {
@@ -227,24 +226,21 @@ class LocalTask extends ContentEntityBase implements EntityChangedInterface, Ent
     }
     $results = $query->execute();
     if (!empty($results)) {
-      return entity_load_multiple('tmgmt_local_task_item', $results);
+      return LocalTaskItem::loadMultiple($results);
     }
     return array();
   }
 
   /**
-   * Create a task item for this task and the given job item.
-   *
-   * @param \Drupal\tmgmt\JobItemInterface $job_item
-   *   The job item.
+   * {@inheritdoc}
    */
   public function addTaskItem(JobItemInterface $job_item) {
     // Save the task to get an id.
-    if (empty($this->tltid)) {
+    if ($this->isNew()) {
       $this->save();
     }
 
-    $local_task = entity_create('tmgmt_local_task_item', array(
+    $local_task = LocalTaskItem::create(array(
       'tltid' => $this->id(),
       'tjiid' => $job_item->id(),
     ));
@@ -253,33 +249,18 @@ class LocalTask extends ContentEntityBase implements EntityChangedInterface, Ent
   }
 
   /**
-   * Returns the status of the task. Can be one of the task status constants.
-   *
-   * @return int
-   *   The status of the task or NULL if it hasn't been set yet.
+   * {@inheritdoc}
    */
   public function getStatus() {
     return $this->status->value;
   }
 
   /**
-   * Updates the status of the task.
-   *
-   * @param $status
-   *   The new status of the task. Has to be one of the task status constants.
-   * @param $message
-   *   (Optional) The log message to be saved along with the status change.
-   * @param $variables
-   *   (Optional) An array of variables to replace in the message on display.
-   *
-   * @return int
-   *   The updated status of the task if it could be set.
-   *
-   * @see Job::addMessage()
+   * {@inheritdoc}
    */
-  public function setStatus($status) {
+  public function setStatus($status, $message = NULL, $variables = array(), $type = 'debug') {
     // Return TRUE if the status could be set. Return FALSE otherwise.
-    if (array_key_exists($status, tmgmt_local_task_statuses())) {
+    if (array_key_exists($status, $this->getStatuses())) {
       $this->incrementLoopCount($status, $this->tuid->target_id);
       $this->status = $status;
       $this->save();
@@ -288,114 +269,78 @@ class LocalTask extends ContentEntityBase implements EntityChangedInterface, Ent
   }
 
   /**
-   * Checks whether the passed value matches the current status.
-   *
-   * @param $status
-   *   The value to check the current status against.
-   *
-   * @return bool
-   *   TRUE if the passed status matches the current status, FALSE otherwise.
+   * {@inheritdoc}
    */
   public function isStatus($status) {
     return $this->getStatus() == $status;
   }
 
   /**
-   * Checks whether the user described by $account is the author of this task.
-   *
-   * @param $account
-   *   (Optional) A user object. Defaults to the currently logged in user.
+   * {@inheritdoc}
    */
-  public function isAuthor($account = NULL) {
+  public function isAuthor(AccountInterface $account = NULL) {
     $account = isset($account) ? $account : \Drupal::currentUser();
     return $this->getOwnerId() == $account->id();
   }
 
   /**
-   * Returns whether the status of this task is 'unassigned'.
-   *
-   * @return bool
-   *   TRUE if the status is 'unassigned', FALSE otherwise.
+   * {@inheritdoc}
    */
   public function isUnassigned() {
-    return $this->isStatus(TMGMT_LOCAL_TASK_STATUS_UNASSIGNED);
+    return $this->isStatus(static::STATUS_UNASSIGNED);
   }
 
   /**
-   * Returns whether the status of this task is 'pending'.
-   *
-   * @return bool
-   *   TRUE if the status is 'pending', FALSE otherwise.
+   * {@inheritdoc}
    */
   public function isPending() {
-    return $this->isStatus(TMGMT_LOCAL_TASK_STATUS_PENDING);
+    return $this->isStatus(static::STATUS_PENDING);
   }
 
   /**
-   * Returns whether the status of this task is 'completed'.
-   *
-   * @return bool
-   *   TRUE if the status is 'completed', FALSE otherwise.
+   * {@inheritdoc}
    */
   public function isCompleted() {
-    return $this->isStatus(TMGMT_LOCAL_TASK_STATUS_COMPLETED);
+    return $this->isStatus(static::STATUS_COMPLETED);
   }
 
   /**
-   * Returns whether the status of this task is 'rejected'.
-   *
-   * @return bool
-   *   TRUE if the status is 'rejected', FALSE otherwise.
+   * {@inheritdoc}
    */
   public function isRejected() {
-    return $this->isStatus(TMGMT_LOCAL_TASK_STATUS_REJECTED);
+    return $this->isStatus(static::STATUS_REJECTED);
   }
 
   /**
-   * Returns whether the status of this task is 'closed'.
-   *
-   * @return bool
-   *   TRUE if the status is 'closed', FALSE otherwise.
+   * {@inheritdoc}
    */
   public function isClosed() {
-    return $this->isStatus(TMGMT_LOCAL_TASK_STATUS_CLOSED);
+    return $this->isStatus(static::STATUS_CLOSED);
   }
 
   /**
-   * Count of all translated data items.
-   *
-   * @return
-   *   Translated count
+   * {@inheritdoc}
    */
   public function getCountTranslated() {
     return tmgmt_local_task_statistic($this, 'count_translated');
   }
 
   /**
-   * Count of all untranslated data items.
-   *
-   * @return
-   *   Translated count
+   * {@inheritdoc}
    */
   public function getCountUntranslated() {
     return tmgmt_local_task_statistic($this, 'count_untranslated');
   }
 
   /**
-   * Count of all completed data items.
-   *
-   * @return
-   *   Translated count
+   * {@inheritdoc}
    */
   public function getCountCompleted() {
     return tmgmt_local_task_statistic($this, 'count_completed');
   }
 
   /**
-   * Sums up all word counts of this task job items.
-   *
-   * @return
-   *   The sum of all accepted counts
+   * {@inheritdoc}
    */
   public function getWordCount() {
     return tmgmt_local_task_statistic($this, 'word_count');
@@ -403,52 +348,72 @@ class LocalTask extends ContentEntityBase implements EntityChangedInterface, Ent
 
 
   /**
-   * Returns loop count of a task.
-   *
-   * @return int
-   *   Task loop count.
+   * {@inheritdoc}
    */
   public function getLoopCount() {
     return $this->loop_count->value;
   }
 
   /**
-   * Increment loop_count property depending on current status, new status and
-   * new translator.
-   *
-   * @param int $newStatus
-   *   New status of task.
-   * @param int $new_tuid
-   *   New translator uid.
+   * {@inheritdoc}
    */
-  public function incrementLoopCount($newStatus, $new_tuid) {
-     if ($this->getStatus() == TMGMT_LOCAL_TASK_STATUS_PENDING
-         && $newStatus == TMGMT_LOCAL_TASK_STATUS_PENDING
-         && $this->tuid->target_id != $new_tuid) {
+  public function incrementLoopCount($new_status, $new_tuid) {
+    if ($this->getStatus() == static::STATUS_PENDING
+      && $new_status == static::STATUS_PENDING
+      && $this->tuid->target_id != $new_tuid
+    ) {
       ++$this->loop_count->value;
     }
-    else if ($this->getStatus() != TMGMT_LOCAL_TASK_STATUS_UNASSIGNED
-             && $newStatus == TMGMT_LOCAL_TASK_STATUS_UNASSIGNED) {
-      ++$this->loop_count->value;
-    }
-    else if ($this->getStatus() != TMGMT_LOCAL_TASK_STATUS_UNASSIGNED
-             && $this->getStatus() != TMGMT_LOCAL_TASK_STATUS_PENDING
-             && $newStatus == TMGMT_LOCAL_TASK_STATUS_PENDING) {
-      ++$this->loop_count->value;
+    else {
+      if ($this->getStatus() != static::STATUS_UNASSIGNED
+        && $new_status == static::STATUS_UNASSIGNED
+      ) {
+        ++$this->loop_count->value;
+      }
+      else {
+        if ($this->getStatus() != static::STATUS_UNASSIGNED
+          && $this->getStatus() != static::STATUS_PENDING
+          && $new_status == static::STATUS_PENDING
+        ) {
+          ++$this->loop_count->value;
+        }
+      }
     }
   }
 
   /**
    * {@inheritdoc}
    */
-  public static function postDelete(EntityStorageInterface $storage_controller, array $entities) {
-    parent::postDelete($storage_controller, $entities);
+  public static function postDelete(EntityStorageInterface $storage, array $entities) {
+    parent::postDelete($storage, $entities);
     $ids = \Drupal::entityQuery('tmgmt_local_task_item')
       ->condition('tltid', array_keys($entities), 'IN')
       ->execute();
     if (!empty($ids)) {
-      entity_delete_multiple('tmgmt_local_task_item', $ids);
+      $storage_handler = \Drupal::entityTypeManager()->getStorage('tmgmt_local_task_item');
+      $entities = $storage_handler->loadMultiple($ids);
+      $storage_handler->delete($entities);
     }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getChangedTimeAcrossTranslations() {
+    return $this->getChangedTime();
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function getStatuses() {
+    return array(
+      static::STATUS_UNASSIGNED => t('Unassigned'),
+      static::STATUS_PENDING => t('Pending'),
+      static::STATUS_COMPLETED => t('Completed'),
+      static::STATUS_REJECTED => t('Rejected'),
+      static::STATUS_CLOSED => t('Closed'),
+    );
   }
 
 }

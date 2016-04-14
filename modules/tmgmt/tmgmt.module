@@ -5,18 +5,18 @@
  * Main module file for the Translation Management module.
  */
 
+use Drupal\Core\Render\Element;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\tmgmt\ContinuousTranslatorInterface;
 use Drupal\tmgmt\Entity\Job;
 use Drupal\tmgmt\Entity\Translator;
 use Drupal\Component\Utility\Html;
-use Drupal\tmgmt\Translator\TranslatableResult;
-use Drupal\tmgmt\Translator\AvailableResult;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\tmgmt\Entity\JobItem;
 use Drupal\tmgmt\JobInterface;
 use Drupal\tmgmt\JobItemInterface;
 use Drupal\tmgmt\TranslatorRejectDataInterface;
-use \Drupal\Core\Render\Element;
 
 /**
  * @addtogroup tmgmt_job
@@ -42,6 +42,11 @@ define('TMGMT_DATA_ITEM_STATE_TRANSLATED', 2);
  * The translation data item has been reviewed.
  */
 define('TMGMT_DATA_ITEM_STATE_ACCEPTED', 3);
+
+/**
+ * The translation data item has been reviewed.
+ */
+define('TMGMT_DATA_ITEM_STATE_PRELIMINARY', 4);
 
 /**
  * @} End of "addtogroup tmgmt_job".
@@ -76,6 +81,30 @@ function tmgmt_cron() {
       ->execute();
     if (!empty($tjid)) {
       entity_delete_multiple('tmgmt_job', $tjid);
+    }
+  }
+
+  // Submit continuous job items.
+  $tmgmt_settings = \Drupal::config('tmgmt.settings');
+  if ($tmgmt_settings->get('submit_job_item_on_cron')) {
+
+    // Look for inactive job items of continuous jobs.
+    $ids = \Drupal::entityQuery('tmgmt_job_item')
+      ->condition('tjid.entity.job_type', JobInterface::TYPE_CONTINUOUS)
+      ->condition('state', JobItemInterface::STATE_INACTIVE)
+      ->range(0, $tmgmt_settings->get('job_items_cron_limit'))
+      ->execute();
+
+    // First, group the job items by job.
+    $job_items_by_job = [];
+    foreach (JobItem::loadMultiple($ids) as $item) {
+      $job_items_by_job[$item->getJobId()][] = $item;
+    }
+
+    // Then submit all items in a group per job.
+    foreach ($job_items_by_job as $items) {
+      $translator = reset($items)->getTranslatorPlugin();
+      $translator->requestJobItemsTranslation($items);
     }
   }
 }
@@ -125,7 +154,7 @@ function tmgmt_job_item_load_latest($plugin, $item_type, $item_id, $source_langu
   $query->innerJoin('tmgmt_job', 'tj', 'tj.tjid = tji.tjid');
   $result = $query->condition('tj.source_language', $source_language)
     // Only query for jobs that are currently active.
-    ->condition('tj.state', array(Job::STATE_UNPROCESSED, Job::STATE_ACTIVE), 'IN')
+    ->condition('tj.state', [Job::STATE_UNPROCESSED, Job::STATE_ACTIVE, Job::STATE_CONTINUOUS], 'IN')
     // And only query for job items that are not yet finished.
     ->condition('tji.state', JobItem::STATE_ACCEPTED, '<>')
     ->condition('tji.plugin', $plugin)
@@ -228,7 +257,7 @@ function tmgmt_job_match_item($source_language, $target_language, $account = NUL
 function tmgmt_job_check_finished($tjid) {
   return !\Drupal::entityQuery('tmgmt_job_item')
     ->condition('tjid', $tjid)
-    ->condition('state', JobItem::STATE_ACCEPTED, '<>')
+    ->condition('state', [JobItem::STATE_ACCEPTED, JobItem::STATE_ABORTED], 'NOT IN')
     ->range(0, 1)
     ->count()
     ->execute();
@@ -237,14 +266,16 @@ function tmgmt_job_check_finished($tjid) {
 /**
  * Creates a translation job.
  *
- * @param $source_language
+ * @param string $source_language
  *   The source language from which should be translated.
- * @param $target_language
+ * @param string $target_language
  *   The target language into which should be translated.
- * @param $values
+ * @param int $uid
+ *   The user ID.
+ * @param array $values
  *   (Optional) An array of additional entity values.
  *
- * @return \Drupal\tmgmt\JobInterface
+ * @return \Drupal\tmgmt\JobInterface The job entity.
  *   The job entity.
  */
 function tmgmt_job_create($source_language, $target_language, $uid = 0, array $values = array()) {
@@ -262,7 +293,7 @@ function tmgmt_job_create($source_language, $target_language, $uid = 0, array $v
  *   An array of job ids.
  *
  * @return
- *   An array of objects with the keys word_count, count_pending,
+ *   An array of objects with the keys word_count, tags_count, count_pending,
  *   count_accepted, count_reviewed and count_translated.
  */
 function tmgmt_job_statistics_load(array $tjids) {
@@ -289,6 +320,7 @@ function tmgmt_job_statistics_load(array $tjids) {
     $query = db_select('tmgmt_job_item', 'tji')
       ->fields('tji', array('tjid'));
     $query->addExpression('SUM(word_count)', 'word_count');
+    $query->addExpression('SUM(tags_count)', 'tags_count');
     $query->addExpression('SUM(count_accepted)', 'count_accepted');
     $query->addExpression('SUM(count_reviewed)', 'count_reviewed');
     $query->addExpression('SUM(count_pending)', 'count_pending');
@@ -310,8 +342,8 @@ function tmgmt_job_statistics_load(array $tjids) {
  * @param $job
  *   The translation job entity.
  * @param $key
- *   One of word_count, count_pending, count_accepted, count_reviewed and
- *   count_translated.
+ *   One of word_count, tags_count, count_pending, count_accepted,
+ *   count_reviewed and count_translated.
  *
  * @return
  *   The requested information as an integer.
@@ -409,7 +441,7 @@ function tmgmt_translator_load_available($job) {
  */
 function tmgmt_translator_busy($translator) {
   return (bool) \Drupal::entityQuery('tmgmt_job')
-    ->condition('state', Job::STATE_ACTIVE)
+    ->condition('state', [Job::STATE_ACTIVE, Job::STATE_CONTINUOUS], 'IN')
     ->condition('translator', $translator)
     ->range(0, 1)
     ->count()
@@ -429,7 +461,7 @@ function tmgmt_translator_auto_create(array $definition) {
       'name' => $plugin,
       'plugin' => $plugin,
       'remote_languages_mappings' => array(),
-      'label' => $definition['label'] . ' (auto created)',
+      'label' => $definition['label'],
       'description' => (string) $definition['description'],
     ]);
     // Append default settings from the translator plugin definition.
@@ -453,8 +485,10 @@ function tmgmt_translator_labels() {
 }
 
 /**
- * Returns a list of flagged translator labels. If a translator is not available
- * it will be suffixed with a short text explaining why it is not available.
+ * Returns a list of flagged translator labels.
+ *
+ * If a translator is not available it will be suffixed with a short text
+ * explaining why it is not available.
  * This can either be because the configuration of the passed job is not
  * supported or because the translator service can't be reached.
  *
@@ -464,9 +498,15 @@ function tmgmt_translator_labels() {
  * @return array
  *   An array of flagged translator labels.
  */
-function tmgmt_translator_labels_flagged($job = NULL) {
+function tmgmt_translator_labels_flagged(JobInterface $job = NULL) {
   $labels = array();
-  foreach (Translator::loadMultiple() as $translator) {
+  $translators = Translator::loadMultiple();
+  uasort($translators, array('Drupal\Core\Config\Entity\ConfigEntityBase', 'sort'));
+  /** @var \Drupal\tmgmt\Entity\Translator $translator */
+  foreach ($translators as $translator) {
+    if (isset($job) && $job->isContinuous() && !($translator->getPlugin() instanceof ContinuousTranslatorInterface)) {
+      continue;
+    }
     if (!$translator->checkAvailable()->getSuccess()) {
       $labels[$translator->id()] = t('@label (not available)', array('@label' => $translator->label()));
     }
@@ -490,27 +530,38 @@ function tmgmt_translator_labels_flagged($job = NULL) {
  */
 function tmgmt_theme() {
   return array(
-    'tmgmt_translator_review_form' => array(
+    'tmgmt_data_items_form' => array(
       'render element' => 'element',
-      'file' => 'tmgmt.theme.inc',
-      'function' => 'theme_tmgmt_translator_review_form',
     ),
-    'tmgmt_translator_review_form_element' => array(
-      'render element' => 'element',
-      'file' => 'tmgmt.theme.inc',
-      'function' => 'theme_tmgmt_translator_review_form_element',
+    'tmgmt_progress_bar' => array(
+      'variables' => array(
+        'title' => NULL,
+        'count_pending' => NULL,
+        'count_translated' => NULL,
+        'count_reviewed' => NULL,
+        'count_accepted' => NULL,
+        'width_pending' => NULL,
+        'width_translated' => NULL,
+        'width_reviewed' => NULL,
+        'width_accepted' => NULL,
+      ),
     ),
-    'tmgmt_translator_review_form_element_status' => array(
-      'render element' => 'status',
-      'file' => 'tmgmt.theme.inc',
-      'function' => 'theme_tmgmt_translator_review_form_element_status',
-    ),
-    'tmgmt_translation_language_status_single' => array(
-      'file' => 'tmgmt.theme.inc',
-      'variables' => array('translation_status' => NULL, 'job_item' => NULL),
-      'function' => 'theme_tmgmt_translation_language_status_single',
+    'tmgmt_legend' => array(
+      'variables' => array(
+        'title' => NULL,
+        'items' => NULL,
+      ),
     ),
   );
+}
+
+/**
+ * Preprocess function for tmgmt_data_items_form.
+ */
+function template_preprocess_tmgmt_data_items_form(&$variables) {
+  $element = $variables['element'];
+  $variables['ajaxid'] = $element['#ajaxid'];
+  $variables['top_label'] = $element['#top_label'];
 }
 
 /**
@@ -628,11 +679,11 @@ function tmgmt_job_request_translation(JobInterface $job) {
 /**
  * Print all messages that occurred since our request to the screen.
  *
- * @param $job
+ * @param \Drupal\tmgmt\JobInterface $job
  *    The translation job for which the message should be written.
  *
- * @return
- *   FALSE if there are message with severity error, TRUE otherwise.
+ * @return bool
+ *    FALSE if there are message with severity error, TRUE otherwise.
  */
 function tmgmt_write_request_messages(JobInterface $job) {
   $errors = FALSE;
@@ -747,6 +798,7 @@ function tmgmt_translation_review_form_update_state(array $form, FormStateInterf
       $job_item->active(FALSE);
     }
   }
+  $job_item->save();
   tmgmt_write_request_messages($job_item->getJob());
 }
 
@@ -848,52 +900,162 @@ function tmgmt_redirect_queue_dequeue() {
  *   Color legend render array.
  */
 function tmgmt_color_legend() {
-  $output = [
-    '#attached' => [
-      'library' => ['tmgmt/admin'],
-    ]
+  $items = [
+    [
+      'icon' => file_create_url('core/misc/icons/bebebe/house.svg'),
+      'legend' => t('Source language'),
+    ],
+    [
+      'icon' => file_create_url('core/misc/icons/bebebe/ex.svg'),
+      'legend' => t('Not translated'),
+    ],
+    [
+      'icon' => file_create_url('core/misc/icons/73b355/check.svg'),
+      'legend' => t('Translated'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/outdated.svg'),
+      'legend' => t('Translation Outdated'),
+    ],
   ];
-  if (\Drupal::theme()->getActiveTheme()->getName() == 'seven') {
-    $output['#attached']['library'][] = 'tmgmt/admin.seven';
-  }
 
-  $legends_left = array();
-  $legends_left[] = array('legend' => t('Source Language'), 'icon' => 'core/misc/icons/bebebe/house.svg');
-  $legends_left[] = array('legend' => t('Not translated'), 'icon' => 'core/misc/icons/bebebe/ex.svg');
-  $legends_left[] = array('legend' => t('Translated'), 'icon' => 'core/misc/icons/73b355/check.svg');
-  $legends_left[] = array('legend' => t('Translation Outdated'), 'icon' => drupal_get_path('module', 'tmgmt') . '/icons/outdated.svg');
-  $legends_right = array();
-  $legends_right[] = array('legend' => t('Ready for review'), 'icon' => drupal_get_path('module', 'tmgmt') . '/icons/ready.svg');
-  $legends_right[] = array('legend' => t('In progress'), 'icon' => drupal_get_path('module', 'tmgmt') . '/icons/hourglass.svg');
+  $output[] = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_legend',
+    '#title' => t('Source status:'),
+    '#items' => $items,
+  ];
 
-  $source_status = 'Source status:';
-  $item_status = 'Item status:';
+  $items = [
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ready.svg'),
+      'legend' => t('Needs review'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/hourglass.svg'),
+      'legend' => t('In progress'),
+    ],
+  ];
 
-  $output['legends']['#markup'] = '<div class="tmgmt-color-legend clearfix">';
+  $output[] = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_legend',
+    '#title' => t('Item status:'),
+    '#items' => $items,
+    '#prefix' => '<div class="clear"></div>',
+  ];
 
-  $output['legends']['#markup'] .= '<div class="tmgmt-source-status"><div class="tmgmt-status">' . $source_status . '</div>';
+  $output['#prefix'] = '<div class="tmgmt-color-legend clearfix">';
+  $output['#suffix'] = '</div>';
 
-  foreach ($legends_left as $legend) {
-    $output['legends']['#markup'] .= '<div class="tmgmt-legend-wrapper">
-        <div class="tmgmt-legend-icon">
-            <img src="' . file_create_url($legend['icon']) . '"><span></span>
-        </div>
-        <div class="tmgmt-legend-status">' . $legend['legend'] . '</div>
-        </div>';
-  }
+  return $output;
+}
 
-  $output['legends']['#markup'] .= '</div><div class="clear"></div><div class="tmgmt-item-status"><div class="tmgmt-status">' . $item_status . '</div>';
+/**
+ * Provides color legends for job item states.
+ *
+ * @return array
+ *   Color legend render array.
+ */
+function tmgmt_color_job_item_legend() {
+  $items = [
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/hourglass.svg'),
+      'legend' => t('In progress'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ready.svg'),
+      'legend' => t('Needs review'),
+    ],
+  ];
 
-  foreach ($legends_right as $legend) {
-    $output['legends']['#markup'] .= '<div class="tmgmt-legend-wrapper">
-        <div class="tmgmt-legend-icon">
-            <img src="' . file_create_url($legend['icon']) . '"><span></span>
-        </div>
-        <div class="tmgmt-legend-status">' . $legend['legend'] . '</div>
-        </div>';
-  }
+  $output = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_legend',
+    '#title' => t('State:'),
+    '#items' => $items,
+    '#prefix' => '<div class="tmgmt-color-legend clearfix">',
+    '#suffix' => '</div>',
+  ];
 
-  $output['legends']['#markup'] .= '</div></div>';
+  return $output;
+}
+
+/**
+ * Provides color legends for job states.
+ *
+ * @return array
+ *   Color legend render array.
+ */
+function tmgmt_color_job_legend() {
+  $items = [
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/rejected.svg'),
+      'legend' => t('Unprocessed'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/hourglass.svg'),
+      'legend' => t('In progress'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ready.svg'),
+      'legend' => t('Needs review'),
+    ],
+  ];
+
+  if (\Drupal::service('tmgmt.continuous')->hasContinuousJobs()) {
+    $items[] = [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/continuous.svg'),
+      'legend' => t('Continuous'),
+    ];
+  };
+
+  $output = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_legend',
+    '#title' => t('State:'),
+    '#items' => $items,
+    '#prefix' => '<div class="tmgmt-color-legend clearfix">',
+    '#suffix' => '</div>',
+  ];
+
+  return $output;
+}
+
+/**
+ * Provides color legends for job item review form.
+ *
+ * @return array
+ *   Color legend render array.
+ */
+function tmgmt_color_review_legend() {
+  $items = [
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/hourglass.svg'),
+      'legend' => t('Pending'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/ready.svg'),
+      'legend' => t('Translated'),
+    ],
+    [
+      'icon' => file_create_url(drupal_get_path('module', 'tmgmt') . '/icons/gray-check.svg'),
+      'legend' => t('Reviewed'),
+    ],
+    [
+      'icon' => file_create_url('core/misc/icons/73b355/check.svg'),
+      'legend' => t('Accepted'),
+    ],
+  ];
+
+  $output = [
+    '#attached' => array('library' => ['tmgmt/admin.seven', 'tmgmt/admin']),
+    '#theme' => 'tmgmt_legend',
+    '#title' => t('State:'),
+    '#items' => $items,
+    '#prefix' => '<div class="tmgmt-color-legend clearfix">',
+    '#suffix' => '</div>',
+  ];
 
   return $output;
 }
@@ -1087,5 +1249,20 @@ function tmgmt_page_attachments(array &$attachments) {
       $attachments['#attached']['library'][] = 'tmgmt/drupal.tmgmt.toolbar';
       break;
     }
+  }
+}
+
+/**
+ * Implements hook_help().
+ */
+function tmgmt_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    case 'help.page.tmgmt':
+      $output = '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t("The Translation Management Tool (TMGMT) module provides a tool set for translating content from different sources. The translation can be done by people or translation services of all kinds. It builds on and uses existing language tools and data structures in Drupal and can be used in automated workflow scenarios. For more information, see the online handbook entry for the <a href=':tmgmt'>TMGMT module</a>.", array(':tmgmt' => 'https://drupal.org/project/tmgmt')) . '.</p>';
+      return $output;
+    case 'entity.tmgmt_job.continuous_add_form':
+      $output = '<p>' . t('Continuous jobs allow to automatically and continuously submit all new and updated content to the configured translator. Each job has a specific language pair, multiple jobs can be created to translate into and from different languages. Only sources that match the configuration are considered, not selecting anything means that nothing will be translated with that job.') . '</p>';
+      return $output;
   }
 }

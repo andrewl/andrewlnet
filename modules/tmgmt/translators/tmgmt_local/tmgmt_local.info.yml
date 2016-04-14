@@ -1,4 +1,4 @@
-name: Local Translator
+name: Drupal user
 description: 'Allows local users to provide translation services.'
 package: Translation Management
 # core: 8.x
@@ -10,8 +10,8 @@ dependencies:
 
 configure: entity.tmgmt_translator.collection
 
-# Information added by Drupal.org packaging script on 2015-11-19
-version: '8.x-1.x-dev'
+# Information added by Drupal.org packaging script on 2016-03-29
+version: '8.x-1.0-rc1'
 core: '8.x'
 project: 'tmgmt'
-datestamp: 1447976346
+datestamp: 1459294445

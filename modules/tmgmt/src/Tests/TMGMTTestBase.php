@@ -7,11 +7,8 @@
 
 namespace Drupal\tmgmt\Tests;
 
-use Drupal\Core\Language\Language;
 use Drupal\language\Entity\ConfigurableLanguage;
 use Drupal\simpletest\WebTestBase;
-use Drupal\tmgmt\Entity\Job;
-use Drupal\tmgmt\Entity\JobItem;
 use Drupal\tmgmt\Entity\Translator;
 use Drupal\tmgmt\JobItemInterface;
 
@@ -37,7 +34,7 @@ abstract class TMGMTTestBase extends WebTestBase {
   /**
    * Drupal user object created by loginAsAdmin().
    *
-   * @var object
+   * @var \Drupal\user\UserInterface
    */
   protected $admin_user = NULL;
 
@@ -51,7 +48,7 @@ abstract class TMGMTTestBase extends WebTestBase {
   /**
    * Drupal user object created by loginAsTranslator().
    *
-   * @var object
+   * @var \Drupal\user\UserInterface
    */
   protected $translator_user = NULL;
 
@@ -180,8 +177,8 @@ abstract class TMGMTTestBase extends WebTestBase {
    *
    * @return \Drupal\tmgmt\JobInterface
    */
-  function createJob($source = 'en', $target = 'de', $uid = 1)  {
-    $job = tmgmt_job_create($source, $target, $uid);
+  function createJob($source = 'en', $target = 'de', $uid = 1, $values = array())  {
+    $job = tmgmt_job_create($source, $target, $uid, $values);
     $this->assertEqual(SAVED_NEW, $job->save());
 
     // Assert that the translator was assigned a tid.
