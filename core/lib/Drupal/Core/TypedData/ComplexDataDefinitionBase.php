@@ -1,10 +1,5 @@
 <?php
 
-/**
- * @file
- * Contains \Drupal\Core\TypedData\ComplexDataDefinitionBase.
- */
-
 namespace Drupal\Core\TypedData;
 
 /**
@@ -47,7 +42,7 @@ abstract class ComplexDataDefinitionBase extends DataDefinition implements Compl
   public function __sleep() {
     // Do not serialize the cached property definitions.
     $vars = get_object_vars($this);
-    unset($vars['propertyDefinitions']);
+    unset($vars['propertyDefinitions'], $vars['typedDataManager']);
     return array_keys($vars);
   }
 

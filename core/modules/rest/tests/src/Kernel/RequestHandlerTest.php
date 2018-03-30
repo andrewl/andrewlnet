@@ -1,21 +1,18 @@
 <?php
 
-/**
- * @file
- * Contains \Drupal\Tests\rest\Kernel\RequestHandlerTest.
- */
-
 namespace Drupal\Tests\rest\Kernel;
 
+use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Config\ImmutableConfig;
 use Drupal\Core\Routing\RouteMatch;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\rest\Plugin\ResourceBase;
-use Drupal\rest\Plugin\Type\ResourcePluginManager;
 use Drupal\rest\RequestHandler;
 use Drupal\rest\ResourceResponse;
-use Psr\Log\LoggerInterface;
+use Drupal\rest\RestResourceConfigInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Route;
+use Symfony\Component\Serializer\SerializerInterface;
 
 /**
  * Test REST RequestHandler controller logic.
@@ -33,103 +30,75 @@ class RequestHandlerTest extends KernelTestBase {
   public static $modules = ['serialization', 'rest'];
 
   /**
+   * The entity storage.
+   *
+   * @var \Prophecy\Prophecy\ObjectProphecy
+   */
+  protected $entityStorage;
+
+  /**
    * {@inheritdoc}
    */
   public function setUp() {
     parent::setUp();
-    $this->requestHandler = new RequestHandler();
-    $this->requestHandler->setContainer($this->container);
+    $config_factory = $this->prophesize(ConfigFactoryInterface::class);
+    $config_factory->get('rest.settings')
+      ->willReturn($this->prophesize(ImmutableConfig::class)->reveal());
+    $serializer = $this->prophesize(SerializerInterface::class);
+    $this->requestHandler = new RequestHandler($config_factory->reveal(), $serializer->reveal());
   }
 
   /**
-   * Assert some basic handler method logic.
-   *
    * @covers ::handle
    */
-  public function testBaseHandler() {
+  public function testHandle() {
     $request = new Request();
-    $route_match = new RouteMatch('test', new Route('/rest/test', ['_plugin' => 'restplugin', '_format' => 'json']));
+    $route_match = new RouteMatch('test', (new Route('/rest/test', ['_rest_resource_config' => 'restplugin'], ['_format' => 'json']))->setMethods(['GET']));
 
     $resource = $this->prophesize(StubRequestHandlerResourcePlugin::class);
     $resource->get(NULL, $request)
       ->shouldBeCalled();
 
-    // Setup stub plugin manager that will return our plugin.
-    $stub = $this->prophesize(ResourcePluginManager::class);
-    $stub->getInstance(['id' => 'restplugin'])
-      ->willReturn($resource->reveal());
-    $this->container->set('plugin.manager.rest', $stub->reveal());
+    // Setup the configuration.
+    $config = $this->prophesize(RestResourceConfigInterface::class);
+    $config->getResourcePlugin()->willReturn($resource->reveal());
+    $config->getCacheContexts()->willReturn([]);
+    $config->getCacheTags()->willReturn([]);
+    $config->getCacheMaxAge()->willReturn(12);
 
     // Response returns NULL this time because response from plugin is not
     // a ResourceResponse so it is passed through directly.
-    $response = $this->requestHandler->handle($route_match, $request);
+    $response = $this->requestHandler->handle($route_match, $request, $config->reveal());
     $this->assertEquals(NULL, $response);
 
     // Response will return a ResourceResponse this time.
     $response = new ResourceResponse([]);
     $resource->get(NULL, $request)
       ->willReturn($response);
-    $handler_response = $this->requestHandler->handle($route_match, $request);
+    $handler_response = $this->requestHandler->handle($route_match, $request, $config->reveal());
     $this->assertEquals($response, $handler_response);
 
     // We will call the patch method this time.
+    $route_match = new RouteMatch('test', (new Route('/rest/test', ['_rest_resource_config' => 'restplugin'], ['_content_type_format' => 'json']))->setMethods(['PATCH']));
     $request->setMethod('PATCH');
     $response = new ResourceResponse([]);
     $resource->patch(NULL, $request)
       ->shouldBeCalledTimes(1)
       ->willReturn($response);
-    $handler_response = $this->requestHandler->handle($route_match, $request);
+    $handler_response = $this->requestHandler->handle($route_match, $request, $config->reveal());
     $this->assertEquals($response, $handler_response);
-  }
-
-  /**
-   * Test that given structured data, the request handler will serialize it.
-   *
-   * @dataProvider providerTestSerialization
-   * @covers ::handle
-   */
-  public function testSerialization($data) {
-    $request = new Request();
-    $route_match = new RouteMatch('test', new Route('/rest/test', ['_plugin' => 'restplugin', '_format' => 'json']));
-
-    $resource = $this->prophesize(StubRequestHandlerResourcePlugin::class);
-
-    // Setup stub plugin manager that will return our plugin.
-    $stub = $this->prophesize(ResourcePluginManager::class);
-    $stub->getInstance(['id' => 'restplugin'])
-      ->willReturn($resource->reveal());
-    $this->container->set('plugin.manager.rest', $stub->reveal());
-
-    $response = new ResourceResponse($data);
-    $resource->get(NULL, $request)
-      ->willReturn($response);
-    $handler_response = $this->requestHandler->handle($route_match, $request);
-    // Content is a serialized version of the data we provided.
-    $this->assertEquals(json_encode($data), $handler_response->getContent());
-  }
-
-  public function providerTestSerialization() {
-    return [
-      [NULL],
-      [''],
-      ['string'],
-      ['Complex \ string $%^&@ with unicode ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΣὨ'],
-      [[]],
-      [['test']],
-      [['test' => 'foobar']],
-      [TRUE],
-      [FALSE],
-      // @todo Not supported. https://www.drupal.org/node/2427811
-      // [new \stdClass()],
-      // [(object) ['test' => 'foobar']],
-    ];
   }
 
 }
 
+/**
+ * Stub class where we can prophesize methods.
+ */
 class StubRequestHandlerResourcePlugin extends ResourceBase {
 
-  /** stub methods so they can be prophesied. */
-  function get() {}
-  function patch() {}
+  public function get($example, Request $request) {}
+  public function post() {}
+  public function patch($example_original, Request $request) {}
+  public function delete() {}
+
 }

@@ -1,10 +1,5 @@
 <?php
 
-/**
- * @file
- * Contains \Drupal\file\Plugin\Field\FieldFormatter\FileUriFormatter.
- */
-
 namespace Drupal\file\Plugin\Field\FieldFormatter;
 
 use Drupal\Core\Field\FieldDefinitionInterface;
@@ -18,7 +13,8 @@ use Drupal\Core\Form\FormStateInterface;
  *   id = "file_uri",
  *   label = @Translation("File URI"),
  *   field_types = {
- *     "uri"
+ *     "uri",
+ *     "file_uri",
  *   }
  * )
  */
