@@ -1,3 +1,7 @@
+body {
+  font-size: 17px;
+}
+
 @media all and (min-width: 992px) {
   article.teaser div.field--name-field-image img {
     border-radius: 50%;
@@ -9,12 +13,23 @@
   }
 }
 
+div.content img {
+  border-color: #36454F;
+  border-style: solid;
+  border-width: 2px;
+}
+
 article {
   margin-bottom: 20px;
+  line-height: 1.6em;
 }
 
 article.teaser h2 {
   margin-top: 0px;
+}
+
+article h3 {
+  margin-top: 33px;
 }
 
 body.page-node-type-article div.region-content h1.page-header {
@@ -63,11 +78,15 @@ div.region-header {
 }
 
 a {
-  color: #36454F;
+  color: black;
 }
 
 a:hover {
-  color: #36454F;
+  color: black;
   border-bottom: px dotted red;
   text-decoration: none;
+}
+
+code {
+  font-size: 12px;
 }
